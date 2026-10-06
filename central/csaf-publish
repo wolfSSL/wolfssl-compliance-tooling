@@ -15,12 +15,9 @@ and, at the distribution root:
   * `openpgp-key.asc` (the public signing key).
 
 This tool takes the `advisories/out/` directory and lays out a ready-to-host
-`.well-known/csaf/<tlp>/<year>/` tree. Signing has two paths. `--gpg-key` runs
-`gpg --armor --detach-sign` with a key that stays in the gpg keyring (the same
-shape as the release-tarball signature). `--key-file` loads an ASCII-armored
-secret with `pgpy` for a test that has no keyring. If neither is given the
-tree is built unsigned (hashes + metadata only). `SOURCE_DATE_EPOCH` pins
-timestamps.
+`.well-known/csaf/<tlp>/<year>/` tree. Signing uses `pgpy` when `--key-file` is
+given; if no key is given the tree is built unsigned (hashes + metadata only)
+so the layout can still be inspected. `SOURCE_DATE_EPOCH` pins timestamps.
 
 Pure stdlib. The CSAF filename convention is applied: the tracking id,
 lowercased, with every char outside [+\\-a-z0-9] replaced by '_', plus '.json'.
@@ -35,13 +32,9 @@ import os
 import pathlib
 import re
 import shutil
-import subprocess
 import sys
 
 _CANON_STRIP = re.compile(r'[^+\-a-z0-9]')
-# Short key id (8), long key id (16), or fingerprint (40). No free-form
-# user id: the value is passed to gpg as --default-key.
-_GPG_KEY_RE = re.compile(r'^(?:0x)?[0-9A-Fa-f]{8,40}$')
 
 
 def canonical_filename(tracking_id):
@@ -106,68 +99,6 @@ def _export_pubkey(key, dest):
     dest.write_text(str(key.pubkey))
 
 
-def validate_gpg_key(key_id):
-    """Accept a key id or fingerprint. Reject anything gpg could treat as a flag."""
-    if not isinstance(key_id, str) or not _GPG_KEY_RE.fullmatch(key_id):
-        sys.exit(f'ERROR: --gpg-key {key_id!r} must be a hex key id or '
-                 'fingerprint (for example 5CA29677).')
-    return key_id
-
-
-def parse_gpg_fingerprints(colons_text):
-    """Primary fingerprint, then subkey fingerprints, from `gpg --with-colons`."""
-    found = []
-    for line in colons_text.splitlines():
-        if not line.startswith('fpr:'):
-            continue
-        parts = line.split(':')
-        if len(parts) > 9 and parts[9]:
-            found.append(parts[9].replace(' ', '').upper())
-    return found
-
-
-def _gpg_fingerprint(key_id):
-    result = subprocess.run(
-        ['gpg', '--batch', '--with-colons', '--fingerprint', key_id],
-        check=False, capture_output=True, text=True)
-    if result.returncode != 0:
-        err = (result.stderr or result.stdout or '').strip()
-        sys.exit(f'ERROR: gpg could not read key {key_id}: {err}')
-    found = parse_gpg_fingerprints(result.stdout)
-    if not found:
-        sys.exit(f'ERROR: gpg printed no fingerprint for {key_id}.')
-    return found[0]
-
-
-def _gpg_export_pubkey(key_id, dest):
-    """Public key only. The secret key stays in the gpg keyring."""
-    result = subprocess.run(
-        ['gpg', '--batch', '--armor', '--export', key_id],
-        check=False, capture_output=True)
-    if result.returncode != 0 or not result.stdout.startswith(b'-----BEGIN PGP'):
-        err = (result.stderr or b'').decode('utf-8', 'replace').strip()
-        sys.exit(f'ERROR: gpg --export failed for {key_id}: {err}')
-    dest.write_bytes(result.stdout if result.stdout.endswith(b'\n')
-                     else result.stdout + b'\n')
-
-
-def _gpg_detach_sign(key_id, path):
-    """Same signature shape as `gpg --armor --default-key KEY --detach-sign FILE`.
-
-    `--yes` skips the overwrite question on a second run. The passphrase
-    prompt still comes from gpg. `--batch` is not used, because batch mode
-    never asks.
-    """
-    asc = path.with_name(path.name + '.asc')
-    result = subprocess.run(
-        ['gpg', '--yes', '--armor', '--default-key', key_id,
-         '--detach-sign', '--output', str(asc), str(path)],
-        check=False)
-    if result.returncode != 0 or not asc.is_file():
-        sys.exit(f'ERROR: gpg --detach-sign failed for {path}.')
-    return asc
-
-
 def build_provider_metadata(base_url, publisher, fingerprint, timestamp):
     md = {
         'canonical_url': f'{base_url}/provider-metadata.json',
@@ -214,16 +145,8 @@ def main():
                    choices=['white', 'green', 'amber', 'red'],
                    help='TLP label folder for the documents.')
     p.add_argument('--key-file', default=None,
-                   help='ASCII-armored OpenPGP secret key (pgpy). '
-                        'For a test keyring only. Omit to skip signing.')
-    p.add_argument('--gpg-key', default=None,
-                   help='gpg key id or fingerprint already in the local '
-                        'keyring (for example 5CA29677). Signs with '
-                        'gpg --armor --detach-sign. The secret key is not '
-                        'exported. Do not combine with --key-file.')
+                   help='ASCII-armored OpenPGP secret key (pgpy). Omit to skip signing.')
     args = p.parse_args()
-    if args.key_file and args.gpg_key:
-        sys.exit('ERROR: pass only one of --key-file and --gpg-key.')
 
     docs_dir = pathlib.Path(args.docs_dir)
     csaf_root = pathlib.Path(args.out_root) / '.well-known' / 'csaf'
@@ -232,23 +155,12 @@ def main():
 
     timestamp = build_timestamp()
 
-    # signer(path) writes path.asc. None leaves the tree unsigned.
-    signer = None
+    key = None
     fingerprint = None
-    if args.gpg_key:
-        key_id = validate_gpg_key(args.gpg_key)
-        fingerprint = _gpg_fingerprint(key_id)
-        _gpg_export_pubkey(key_id, csaf_root / 'openpgp-key.asc')
-
-        def signer(path, key_id=key_id):
-            _gpg_detach_sign(key_id, path)
-    elif args.key_file:
+    if args.key_file:
         key = _load_key(args.key_file)
         fingerprint = _key_fingerprint(key)
         _export_pubkey(key, csaf_root / 'openpgp-key.asc')
-
-        def signer(path, key=key):
-            _sign(path, key)
 
     index_lines = []
     changes_rows = []
@@ -284,8 +196,8 @@ def main():
         dest.write_text(json.dumps(doc, indent=2) + '\n')
 
         _sha_files(dest)
-        if signer is not None:
-            signer(dest)
+        if key is not None:
+            _sign(dest, key)
 
         index_lines.append(rel)
         released = doc['document']['tracking'].get('current_release_date', timestamp)
@@ -306,10 +218,10 @@ def main():
     md_path = csaf_root / 'provider-metadata.json'
     md_path.write_text(json.dumps(md, indent=2) + '\n')
     _sha_files(md_path)
-    if signer is not None:
-        signer(md_path)
+    if key is not None:
+        _sign(md_path, key)
 
-    signed = 'signed' if signer is not None else 'UNSIGNED'
+    signed = 'signed' if key is not None else 'UNSIGNED'
     print(f'Published {len(csaf_docs)} CSAF document(s) [{signed}] to {csaf_root}')
     if fingerprint:
         print(f'Signing key fingerprint: {fingerprint}')
