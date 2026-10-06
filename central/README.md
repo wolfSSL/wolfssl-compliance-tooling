@@ -29,9 +29,12 @@ These tools run for wolfSSL only. Do not vendor them into a product.
   `(MACRO / --enable-foo)`, `define MACRO`). "MACRO is defined" is not a
   gate. Put one machine line on a bullet when the prose is not that shape.
   `defines=` with no names means the default build is affected, and the
-  script does not guess.
+  script does not guess. A line that starts with `VEX:` is machine input.
+  Spaces around commas are allowed. Any other shape stops the command and
+  writes nothing.
 
       VEX: fixed=5.9.4; defines=HAVE_ALPN
+      VEX: fixed=5.9.4; defines=HAVE_ALPN, OPENSSL_EXTRA
       VEX: fixed=5.9.4; defines=
 
       python3 central/advisory-overlay-draft --release 5.9.4 \

@@ -137,6 +137,29 @@ class VexLineTests(unittest.TestCase):
         self.assertEqual(entry['requires_defines'], ['HAVE_ALPN'])
         self.assertTrue(any('VEX line' in line for line in notes))
 
+    def test_vex_line_allows_spaces_around_commas(self):
+        body = [
+            'ALPN parsing overread.',
+            'VEX: fixed=5.9.4; defines=HAVE_ALPN, OPENSSL_EXTRA',
+            '',
+            'Builds that define WOLFSSL_SNIFFER are affected.',
+        ]
+        entry, notes = aod.draft_entry('wolfSSL', '5.9.4', body)
+        self.assertEqual(entry['requires_defines'], ['HAVE_ALPN', 'OPENSSL_EXTRA'])
+        self.assertEqual(entry['detail'], 'ALPN parsing overread.')
+        self.assertNotIn('VEX:', entry['detail'])
+        self.assertNotIn('WOLFSSL_SNIFFER', entry['requires_defines'])
+        self.assertTrue(any('VEX line' in line for line in notes))
+
+    def test_malformed_vex_line_is_rejected(self):
+        body = [
+            'ALPN parsing overread.',
+            'VEX: fixed=5.9.4 defines=HAVE_ALPN, OPENSSL_EXTRA',
+        ]
+        with self.assertRaises(SystemExit) as cm:
+            aod.draft_entry('wolfSSL', '5.9.4', body)
+        self.assertIn('malformed VEX line', str(cm.exception))
+
 
 class BulletTests(unittest.TestCase):
     def setUp(self):
@@ -281,6 +304,29 @@ class CliTests(unittest.TestCase):
             self.assertEqual(data['CVE-2026-55967']['detail'], 'New text.')
             self.assertEqual(data['CVE-2026-1000']['detail'], 'Leave this key.')
             self.assertEqual(data['_comment'], 'keep')
+
+    def test_malformed_vex_line_writes_nothing(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            changelog = root / 'ChangeLog.md'
+            changelog.write_text(
+                '# wolfSSL Release 5.9.4 (Sep 17, 2026)\n'
+                '## Vulnerabilities\n'
+                '* [High] CVE-2026-99991\n'
+                '  ALPN parsing overread.\n'
+                '  VEX: fixed=5.9.4 defines=HAVE_ALPN, OPENSSL_EXTRA\n'
+            )
+            overlay = root / 'vex-overlay.json'
+            overlay.write_text('{}\n')
+            run = subprocess.run(
+                [sys.executable, str(SCRIPT),
+                 '--release', '5.9.4',
+                 '--changelog', str(changelog),
+                 '--overlay', str(overlay)],
+                check=False, capture_output=True, text=True)
+            self.assertNotEqual(run.returncode, 0)
+            self.assertIn('malformed VEX line', run.stderr)
+            self.assertEqual(overlay.read_text(), '{}\n')
 
 
 if __name__ == '__main__':

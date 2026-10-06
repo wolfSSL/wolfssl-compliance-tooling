@@ -12,6 +12,8 @@ not invent the per-CVE determination. This tool fills that gap with a draft:
   * `requires_defines` only when a build macro sits next to a gating phrase
     (`--enable-… (MACRO)`, `(MACRO / --enable-…)`, `define MACRO`,
     `support (MACRO)`, …), or when the bullet carries a `VEX:` line.
+    A line that starts with `VEX:` is machine input. Spaces around commas
+    are allowed. Any other shape stops the command.
 
 Existing overlay keys are left unchanged, so a second run does not wipe a
 review. The command prints a REVIEW line for every macro it guessed and for
@@ -73,8 +75,10 @@ _PAREN_PAIR_RE = re.compile(
     r')\s*\)'
 )
 # One machine line per bullet. defines= with no names means the default build.
+# Spaces around commas are part of the grammar. Anything else that starts
+# with VEX: is an error, not prose.
 _VEX_LINE_RE = re.compile(
-    r'^VEX:\s*fixed=([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s*;\s*defines=([A-Z0-9_,]*)\s*$'
+    r'^VEX:\s*fixed=([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s*;\s*defines=(.*)$'
 )
 # Bundle switches are not one feature macro. Do not ask the reviewer to invent one.
 _IGNORE_FLAGS = {'--enable-all'}
@@ -161,7 +165,7 @@ def first_paragraph(body_lines):
     chunks = []
     for line in body_lines:
         stripped = line.strip()
-        if _VEX_LINE_RE.match(stripped):
+        if stripped.startswith('VEX:'):
             continue
         if stripped == '':
             if chunks:
@@ -202,33 +206,58 @@ def _pair_macros(text):
     return macros, spans
 
 
+def _reject_vex_line(stripped):
+    sys.exit(
+        'ERROR: malformed VEX line. '
+        'Expected "VEX: fixed=<version>; defines=<MACRO, MACRO>". '
+        f'Got: {stripped}'
+    )
+
+
+def _parse_defines(raw):
+    """Return the macro list, or None when defines= is not the grammar.
+
+    An empty value means the default build is affected. Names are separated
+    by commas. Spaces around each comma are allowed.
+    """
+    text = raw.strip()
+    if text == '':
+        return []
+    parts = [part.strip() for part in text.split(',')]
+    if any(part == '' for part in parts):
+        return None
+    if any(_MACRO_RE.fullmatch(part) is None for part in parts):
+        return None
+    return parts
+
+
 def parse_vex_line(body_lines):
     """Return the bullet's `VEX:` line, or None when the bullet has none.
 
     The dict has `fixed`, `defines` (a list), and `error` (a string or None).
     A present line is authoritative: the caller must not also guess.
+    A line that starts with `VEX:` and does not match the grammar stops
+    the command. It is not prose.
     """
     found = None
     for line in body_lines:
-        m = _VEX_LINE_RE.match(line.strip())
-        if not m:
+        stripped = line.strip()
+        if not stripped.startswith('VEX:'):
             continue
+        m = _VEX_LINE_RE.match(stripped)
+        names = _parse_defines(m.group(2)) if m else None
+        if m is None or names is None:
+            _reject_vex_line(stripped)
         if found is not None:
             return {
                 'fixed': found['fixed'],
                 'defines': [],
                 'error': 'more than one VEX line. None were applied.',
             }
-        raw = m.group(2)
-        names = [part.strip() for part in raw.split(',') if part.strip()]
-        bad = [name for name in names if not _MACRO_RE.fullmatch(name)]
         found = {
             'fixed': m.group(1),
-            'defines': [] if bad else names,
-            'error': (
-                'VEX defines has a name that is not a build macro: '
-                + ', '.join(bad)
-            ) if bad else None,
+            'defines': names,
+            'error': None,
         }
     return found
 
@@ -278,10 +307,10 @@ def guess_default_status(text):
 
 def draft_entry(product, release, body_lines):
     """One overlay object plus REVIEW notes. Notes are not written to JSON."""
-    paragraph = first_paragraph(body_lines)
-    prose = [line for line in body_lines if not _VEX_LINE_RE.match(line.strip())]
-    full = re.sub(r'\s+', ' ', ' '.join(line.strip() for line in prose if line.strip()))
     vex = parse_vex_line(body_lines)
+    paragraph = first_paragraph(body_lines)
+    prose = [line for line in body_lines if not line.strip().startswith('VEX:')]
+    full = re.sub(r'\s+', ' ', ' '.join(line.strip() for line in prose if line.strip()))
     notes = []
     if vex is not None:
         macros = [] if vex['error'] else vex['defines']
