@@ -39,9 +39,10 @@ import subprocess
 import sys
 
 _CANON_STRIP = re.compile(r'[^+\-a-z0-9]')
-# Short key id (8), long key id (16), or fingerprint (40). No free-form
-# user id: the value is passed to gpg as --default-key.
-_GPG_KEY_RE = re.compile(r'^(?:0x)?[0-9A-Fa-f]{8,40}$')
+# Full fingerprint only. A short key id can match more than one key, and
+# `gpg --export` then writes every match. No free-form user id: the value
+# is passed to gpg as --default-key.
+_GPG_KEY_RE = re.compile(r'^(?:0x)?[0-9A-Fa-f]{40}$')
 
 
 def canonical_filename(tracking_id):
@@ -107,11 +108,13 @@ def _export_pubkey(key, dest):
 
 
 def validate_gpg_key(key_id):
-    """Accept a key id or fingerprint. Reject anything gpg could treat as a flag."""
+    """Accept a 40-hex fingerprint. Reject a short id and anything gpg could treat as a flag."""
     if not isinstance(key_id, str) or not _GPG_KEY_RE.fullmatch(key_id):
-        sys.exit(f'ERROR: --gpg-key {key_id!r} must be a hex key id or '
-                 'fingerprint (for example 5CA29677).')
-    return key_id
+        sys.exit(f'ERROR: --gpg-key {key_id!r} must be the full 40-hex '
+                 'fingerprint. A short key id can match more than one key.')
+    if key_id[:2].lower() == '0x':
+        key_id = key_id[2:]
+    return key_id.upper()
 
 
 def parse_gpg_fingerprints(colons_text):
@@ -217,10 +220,11 @@ def main():
                    help='ASCII-armored OpenPGP secret key (pgpy). '
                         'For a test keyring only. Omit to skip signing.')
     p.add_argument('--gpg-key', default=None,
-                   help='gpg key id or fingerprint already in the local '
-                        'keyring (for example 5CA29677). Signs with '
-                        'gpg --armor --detach-sign. The secret key is not '
-                        'exported. Do not combine with --key-file.')
+                   help='Full 40-hex fingerprint of a gpg key already in '
+                        'the local keyring. Signs with '
+                        'gpg --armor --detach-sign. A short key id is '
+                        'rejected. The secret key is not exported. '
+                        'Do not combine with --key-file.')
     args = p.parse_args()
     if args.key_file and args.gpg_key:
         sys.exit('ERROR: pass only one of --key-file and --gpg-key.')
