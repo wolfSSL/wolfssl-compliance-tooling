@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Structural validator for wolfGlass SBOM output.
+"""Structural validator for wolfssl-compliance-tooling SBOM output.
 
 This is the product-neutral form of wolfBoot's validate_sbom.py. It asserts the
 essentials that every SBOM route must satisfy, so CI (and humans) can fail fast

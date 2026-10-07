@@ -51,7 +51,7 @@ DEFAULT_RECORDS_DIR = _REPO_ROOT / 'advisories' / 'records'
 DEFAULT_OVERLAY = _REPO_ROOT / 'advisories' / 'vex-overlay.json'
 
 # The product ChangeLog is the release membership authority. wolfSSL lives in a
-# sibling checkout next to wolfglass; override with --changelog for any product.
+# sibling checkout next to wolfssl-compliance-tooling; override with --changelog for any product.
 DEFAULT_CHANGELOG = _REPO_ROOT.parent / 'wolfssl' / 'ChangeLog.md'
 
 _CVE_ID_RE = re.compile(r'CVE-[0-9]{4}-[0-9]{4,}')

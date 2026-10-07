@@ -1,14 +1,14 @@
-name: wolfGlass SBOM (reusable)
+name: wolfssl-compliance-tooling SBOM (reusable)
 
 # A reusable workflow for product repositories. A product calls it to build its
-# SBOM with the vendored wolfGlass driver, validate the output, and prove that no
+# SBOM with the vendored wolfssl-compliance-tooling driver, validate the output, and prove that no
 # absolute host path leaked into the document.
 #
 # Example caller in a product repo:
 #
 #   jobs:
 #     sbom:
-#       uses: wolfSSL/wolfGlass/.github/workflows/sbom-reusable.yml@v1
+#       uses: wolfSSL/wolfssl-compliance-tooling/.github/workflows/sbom-reusable.yml@v1
 #       with:
 #         name-prefix: wolfboot
 #         build-command: make sbom
@@ -31,12 +31,12 @@ on:
         default: "*.cdx.json *.spdx.json"
         type: string
       vendored-path:
-        description: Where wolfGlass share/ is vendored in the product.
+        description: Where wolfssl-compliance-tooling share/ is vendored in the product.
         required: false
         default: tools/sbom
         type: string
-      wolfglass-ref:
-        description: wolfGlass ref to check drift against (empty = skip drift).
+      wolfssl-compliance-tooling-ref:
+        description: wolfssl-compliance-tooling ref to check drift against (empty = skip drift).
         required: false
         default: ""
         type: string
@@ -62,14 +62,14 @@ jobs:
       # shell metacharacters would execute as code (this is a reusable workflow
       # shipped to every product repo).  env values are not re-parsed by ${{ }}.
       - name: Check vendored drift
-        if: inputs.wolfglass-ref != ''
+        if: inputs.wolfssl-compliance-tooling-ref != ''
         env:
-          WOLFGLASS_REF: ${{ inputs.wolfglass-ref }}
+          WOLFSSL_COMPLIANCE_TOOLING_REF: ${{ inputs.wolfssl-compliance-tooling-ref }}
           VENDORED_PATH: ${{ inputs.vendored-path }}
         run: |
-          git clone --depth 1 --branch "$WOLFGLASS_REF" \
-            https://github.com/wolfSSL/wolfGlass _wolfglass
-          python _wolfglass/tools/wolfglass-sync \
+          git clone --depth 1 --branch "$WOLFSSL_COMPLIANCE_TOOLING_REF" \
+            https://github.com/wolfSSL/wolfssl-compliance-tooling _wolfssl-compliance-tooling
+          python _wolfssl-compliance-tooling/tools/wolfssl-compliance-tooling-sync \
             --dest "$GITHUB_WORKSPACE" \
             --subdir "$VENDORED_PATH" \
             --check
