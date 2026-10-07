@@ -23,8 +23,10 @@ These tools run for wolfSSL only. Do not vendor them into a product.
 - `csaf-publish` — assemble the `.well-known/csaf` directory (hashes, index,
   provider-metadata, optional OpenPGP signatures). `--gpg-key` takes the full
   40-hex fingerprint and signs with the gpg keyring
-  (`gpg --armor --detach-sign`). A short key id is rejected. The secret key
-  is not written to a file. `--key-file` is the pgpy path for a test key.
+  (`gpg --local-user --armor --detach-sign`). `--default-key` is not used:
+  an unusable key must fail, not fall back to another key. A short key id
+  is rejected. The secret key is not written to a file. `--key-file` is the
+  pgpy path for a test key.
   Sign at deploy, not in git. Honors `SOURCE_DATE_EPOCH`.
 - `csaf-verify` — consumer-side check. Walks `index.txt` and hash sidecars.
   Signature checks require `--fingerprint` matching provider-metadata.json.

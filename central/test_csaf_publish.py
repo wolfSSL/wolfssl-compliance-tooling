@@ -287,13 +287,54 @@ class GpgSignTests(unittest.TestCase):
             self.assertIn('BEGIN PGP PUBLIC KEY BLOCK', pubkey)
             recorded = log.read_text()
             self.assertNotIn('export-secret-keys', recorded)
+            self.assertNotIn('--default-key', recorded)
             self.assertIn(
-                '--default-key\tABCDEF0123456789ABCDEF0123456789ABCDEF01'
+                '--local-user\tABCDEF0123456789ABCDEF0123456789ABCDEF01'
                 '\t--detach-sign',
                 recorded)
             self.assertIn(
                 '--export\tABCDEF0123456789ABCDEF0123456789ABCDEF01',
                 recorded)
+
+    def test_main_rejects_a_short_key_id_before_gpg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            gpg = bindir / 'gpg'
+            gpg.write_text(_FAKE_GPG)
+            gpg.chmod(0o755)
+            log = root / 'gpg-argv.log'
+            docs = root / 'docs'
+            _write_sample_csaf(docs)
+            out = root / 'publish'
+            saved_path = os.environ.get('PATH')
+            saved_log = os.environ.get('GPG_ARGV_LOG')
+            os.environ['PATH'] = str(bindir) + os.pathsep + (saved_path or '')
+            os.environ['GPG_ARGV_LOG'] = str(log)
+            import sys
+            argv = sys.argv
+            try:
+                sys.argv = [
+                    'csaf-publish',
+                    '--docs-dir', str(docs),
+                    '--out-root', str(out),
+                    '--gpg-key', '5CA29677',
+                ]
+                with self.assertRaises(SystemExit) as cm:
+                    pub.main()
+                self.assertIn('40-hex', str(cm.exception))
+            finally:
+                sys.argv = argv
+                if saved_path is None:
+                    os.environ.pop('PATH', None)
+                else:
+                    os.environ['PATH'] = saved_path
+                if saved_log is None:
+                    os.environ.pop('GPG_ARGV_LOG', None)
+                else:
+                    os.environ['GPG_ARGV_LOG'] = saved_log
+            self.assertFalse(log.exists())
 
     def test_gpg_key_and_key_file_together_fail(self):
         import sys

@@ -41,7 +41,9 @@ import sys
 _CANON_STRIP = re.compile(r'[^+\-a-z0-9]')
 # Full fingerprint only. A short key id can match more than one key, and
 # `gpg --export` then writes every match. No free-form user id: the value
-# is passed to gpg as --default-key.
+# is passed to gpg as --local-user. --default-key is only a hint, so an
+# expired, revoked, or public-only key can still exit 0 after another key
+# signs.
 _GPG_KEY_RE = re.compile(r'^(?:0x)?[0-9A-Fa-f]{40}$')
 
 
@@ -155,15 +157,17 @@ def _gpg_export_pubkey(key_id, dest):
 
 
 def _gpg_detach_sign(key_id, path):
-    """Same signature shape as `gpg --armor --default-key KEY --detach-sign FILE`.
+    """Detached signature from this key: `gpg --armor --local-user KEY --detach-sign`.
 
-    `--yes` skips the overwrite question on a second run. The passphrase
-    prompt still comes from gpg. `--batch` is not used, because batch mode
-    never asks.
+    `--local-user` fails when the key is expired, revoked, or has no secret
+    key. `--default-key` is a hint and can sign with a different key, then
+    exit 0. `--yes` skips the overwrite question on a second run. The
+    passphrase prompt still comes from gpg. `--batch` is not used, because
+    batch mode never asks.
     """
     asc = path.with_name(path.name + '.asc')
     result = subprocess.run(
-        ['gpg', '--yes', '--armor', '--default-key', key_id,
+        ['gpg', '--yes', '--armor', '--local-user', key_id,
          '--detach-sign', '--output', str(asc), str(path)],
         check=False)
     if result.returncode != 0 or not asc.is_file():
@@ -222,9 +226,9 @@ def main():
     p.add_argument('--gpg-key', default=None,
                    help='Full 40-hex fingerprint of a gpg key already in '
                         'the local keyring. Signs with '
-                        'gpg --armor --detach-sign. A short key id is '
-                        'rejected. The secret key is not exported. '
-                        'Do not combine with --key-file.')
+                        'gpg --local-user --armor --detach-sign. A short '
+                        'key id is rejected. The secret key is not '
+                        'exported. Do not combine with --key-file.')
     args = p.parse_args()
     if args.key_file and args.gpg_key:
         sys.exit('ERROR: pass only one of --key-file and --gpg-key.')
