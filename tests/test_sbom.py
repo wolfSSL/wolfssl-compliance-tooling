@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wolfGlass self-test.
+"""wolfssl-compliance-tooling self-test.
 
 Two layers:
 

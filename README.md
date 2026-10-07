@@ -1,25 +1,24 @@
-# wolfGlass
+# wolfssl-compliance-tooling
 
-## What is wolfGlass?
+## What is wolfssl-compliance-tooling?
 
-wolfGlass is the shared software-transparency toolkit for the wolfSSL product
-family. The name is the point: it's what turns a product from a black box
-into something you can see straight through. SBOM is the first and current
+wolfssl-compliance-tooling is the shared software-transparency toolkit for the wolfSSL product
+family. It shows what is inside a product. SBOM is the first and current
 pillar; VEX/CSAF security advisories and build provenance (bomsh) are the
 same idea applied to two more questions a customer eventually asks — "what's
 in it," "does a given CVE actually affect me," and "can you prove this
 artifact was built from what you say it was."
 
-**Today, wolfGlass's shipped, working capability is SBOM generation.** The
+**Today, wolfssl-compliance-tooling's shipped, working capability is SBOM generation.** The
 rest of this document — and the rest of the toolkit's product-facing
 workflow — is scoped to that. The advisory/VEX tooling (`central/`) and the
 provenance verifier (`provenance/`) already live in the repository, but
 they're not yet wired into the same product-adoption path as the SBOM
-engine. Treat them as where wolfGlass is headed, not what a product
+engine. Treat them as where wolfssl-compliance-tooling is headed, not what a product
 integrates against today.
 
 Rather than every repository implementing and maintaining its own SBOM
-generator, wolfGlass provides:
+generator, wolfssl-compliance-tooling provides:
 
 - one common SBOM engine
 - one common validation pipeline
@@ -49,10 +48,10 @@ Every product feeds the same driver two things — its build configuration and
 its build output — and gets the same validated SBOM shape back. That picture
 is most of the design.
 
-## Why wolfGlass exists
+## Why wolfssl-compliance-tooling exists
 
 wolfSSL ships 28+ products across autotools, CMake, plain Make, IDE projects,
-Kconfig builds, and five language ecosystems. Before wolfGlass, each product
+Kconfig builds, and five language ecosystems. Before wolfssl-compliance-tooling, each product
 hand-copied its own SBOM script. Without a shared toolkit:
 
 - every repository implemented its own SBOM logic
@@ -61,7 +60,7 @@ hand-copied its own SBOM script. Without a shared toolkit:
 - validating output meant duplicating CI in every repo
 - embedded and IDE-based products had no common approach at all
 
-wolfGlass centralizes the implementation while leaving build-specific
+wolfssl-compliance-tooling centralizes the implementation while leaving build-specific
 knowledge inside small frontends. Fix a defect once in the generator, and
 every product picks it up on its next sync — no per-product patch required.
 
@@ -76,7 +75,7 @@ questions:
 
 Everything else — autotools vs. CMake vs. an IAR project vs. a Zephyr
 module — is just a different way of discovering the answers to those same
-two questions. wolfGlass's generator only ever sees the normalized answers,
+two questions. wolfssl-compliance-tooling's generator only ever sees the normalized answers,
 never the build system that produced them. That's what makes it possible for
 one generator to serve every product without knowing anything about any of
 them.
@@ -100,7 +99,7 @@ system it ships) while all of them converge on the same engine.
 | Frontend | Build system | What it extracts |
 |---|---|---|
 | `sbom.am` | Autotools | Stages a private `make install`, discovers the installed library/binary, hashes it; config from `AM_CPPFLAGS`/`config.h`. |
-| `build/sbom.cmake` | CMake | Same shape, called as `wolfglass_add_sbom()` with `NAME`/`TARGETS`/`DEFS`. |
+| `build/sbom.cmake` | CMake | Same shape, called as `wolfssl_compliance_tooling_add_sbom()` with `NAME`/`TARGETS`/`DEFS`. |
 | `build/sbom.mk` | Plain Make | Product sets `SBOM_NAME`/`SBOM_SRCS`/`SBOM_CFLAGS` (plus `SBOM_SETTINGS_H` when a `user_settings.h` derives the config), includes the fragment. |
 | `frontends/compdb_sbom.py` | Any `compile_commands.json` | The universal fallback — TI CCS, MPLAB X, Renesas e2studio, or anything wrappable with `bear -- make ...`. |
 | `frontends/iar_sbom.py` | IAR Embedded Workbench `.ewp` | Parses the project XML directly — there's no build step to hook into. |
@@ -162,18 +161,18 @@ neither hashes a compiler output.
 ## Distribution: vendor a snapshot, not a dependency
 
 Products vendor a snapshot of the toolkit into their own tree (`tools/sbom/`
-by default) via `tools/wolfglass-sync`, and pin the exact version and source
+by default) via `tools/wolfssl-compliance-tooling-sync`, and pin the exact version and source
 commit they copied. This is deliberate over a git submodule: a submodule
 breaks source tarballs, needs network access at clone time, and adds files to
 what should be a frozen, air-gapped-buildable tree. A CI drift check
-(`wolfglass-sync --check`) confirms a product's vendored copy still matches
+(`wolfssl-compliance-tooling-sync --check`) confirms a product's vendored copy still matches
 the source.
 
-## Using wolfGlass
+## Using wolfssl-compliance-tooling
 
 Typical integration for a new product:
 
-1. Vendor wolfGlass: `tools/wolfglass-sync --dest /path/to/product`.
+1. Vendor wolfssl-compliance-tooling: `tools/wolfssl-compliance-tooling-sync --dest /path/to/product`.
 2. Add the one frontend that matches your build system.
 3. Provide the configuration input (`--options-h`, `--user-settings`, or
    `--source-only`).
@@ -184,7 +183,7 @@ Typical integration for a new product:
 
 ## The bigger picture: SBOM is pillar one, not the whole toolkit
 
-wolfGlass is organized around three transparency pillars, and the repository
+wolfssl-compliance-tooling is organized around three transparency pillars, and the repository
 layout already reflects this even though only the first is fully built out:
 
 | Pillar | Answers | Lives in | Status |
@@ -198,13 +197,13 @@ each product the way the SBOM engine is — they're meant to run centrally
 (advisories are authored once per CVE, not once per product) or opt-in per
 release (provenance tracing is expensive to run on every PR). As those
 pillars mature, expect this document to grow a second and third "Using
-wolfGlass" walkthrough alongside the SBOM one above — but that's future work,
+wolfssl-compliance-tooling" walkthrough alongside the SBOM one above — but that's future work,
 not something to design against yet.
 
 ## Current limitations
 
 - No offline schema bundle yet for CDX 1.6 / SPDX 2.3 validation.
-- The `wolfglass-bomsh` build-tracing wrapper is planned; only the verifier
+- The `wolfssl-compliance-tooling-bomsh` build-tracing wrapper is planned; only the verifier
   (`bomsh_verify.py`) exists today.
 - A Kbuild/DKMS frontend for Linux kernel modules is planned, not yet built.
 

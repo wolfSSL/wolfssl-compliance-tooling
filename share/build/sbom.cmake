@@ -1,15 +1,15 @@
-# sbom.cmake - shared CMake helper for wolfGlass SBOM generation.
+# sbom.cmake - shared CMake helper for wolfssl-compliance-tooling SBOM generation.
 #
 # This replaces the per-product `add_custom_target(sbom ...)` blocks that today
 # are copied and drifting across wolfMQTT, wolfTPM, and wolfBoot. It exposes ONE
-# function, wolfglass_add_sbom(), so each product describes itself in a few lines
+# function, wolfssl_compliance_tooling_add_sbom(), so each product describes itself in a few lines
 # and gets an `sbom` target that calls the same driver as the Make and autotools
 # paths.
 #
 # Include this file, then call the function:
 #
 #   include(${CMAKE_CURRENT_SOURCE_DIR}/tools/sbom/build/sbom.cmake)
-#   wolfglass_add_sbom(
+#   wolfssl_compliance_tooling_add_sbom(
 #       NAME          wolfboot
 #       VERSION_FILE  ${CMAKE_CURRENT_SOURCE_DIR}/include/wolfboot/version.h
 #       VERSION_MACRO LIBWOLFBOOT_VERSION_STRING
@@ -59,11 +59,11 @@
 # shell environment (WSL/MSYS/Git-Bash) or use the Make/autotools path.
 
 # The shared driver sits one directory above this fragment.
-set(_WOLFGLASS_SBOM_DIR ${CMAKE_CURRENT_LIST_DIR})
-get_filename_component(_WOLFGLASS_DRIVER
-    "${_WOLFGLASS_SBOM_DIR}/../sbom-driver" ABSOLUTE)
+set(_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR ${CMAKE_CURRENT_LIST_DIR})
+get_filename_component(_WOLFSSL_COMPLIANCE_TOOLING_DRIVER
+    "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}/../sbom-driver" ABSOLUTE)
 
-function(wolfglass_add_sbom)
+function(wolfssl_compliance_tooling_add_sbom)
     set(_opts NO_ARTIFACT_HASH SOURCE_ONLY)
     set(_one NAME TARGET_NAME VERSION VERSION_FILE VERSION_MACRO LICENSE
              SBOM_GEN GEN_SBOM HOSTCC ROOT LIB USER_SETTINGS OPTIONS_H SETTINGS_H
@@ -74,10 +74,10 @@ function(wolfglass_add_sbom)
     cmake_parse_arguments(SB "${_opts}" "${_one}" "${_multi}" ${ARGN})
 
     if(NOT SB_NAME)
-        message(FATAL_ERROR "wolfglass_add_sbom: NAME is required")
+        message(FATAL_ERROR "wolfssl_compliance_tooling_add_sbom: NAME is required")
     endif()
     if(NOT SB_TARGETS AND NOT SB_LIB)
-        message(FATAL_ERROR "wolfglass_add_sbom: set TARGETS or LIB")
+        message(FATAL_ERROR "wolfssl_compliance_tooling_add_sbom: set TARGETS or LIB")
     endif()
     if(NOT SB_ROOT)
         set(SB_ROOT ${CMAKE_CURRENT_SOURCE_DIR})
@@ -120,7 +120,7 @@ function(wolfglass_add_sbom)
     list(REMOVE_DUPLICATES _srcs)
 
     set(_cmd ${CMAKE_COMMAND} -E env HOSTCC=${SB_HOSTCC}
-             ${_WOLFGLASS_DRIVER}
+             ${_WOLFSSL_COMPLIANCE_TOOLING_DRIVER}
              --name ${SB_NAME}
              --root ${SB_ROOT}
              --license-file ${SB_LICENSE}

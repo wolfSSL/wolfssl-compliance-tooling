@@ -1,6 +1,6 @@
-name: wolfGlass self-test
+name: wolfssl-compliance-tooling self-test
 
-# Runs the wolfGlass unit and integration tests on every change. The vendored
+# Runs the wolfssl-compliance-tooling unit and integration tests on every change. The vendored
 # gen-sbom makes the integration path self-contained.
 
 on:
@@ -16,7 +16,7 @@ jobs:
   selftest:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout wolfGlass
+      - name: Checkout wolfssl-compliance-tooling
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -45,13 +45,13 @@ jobs:
             central/csaf-keygen \
             central/test_csaf_publish.py \
             provenance/bomsh_verify.py \
-            tools/wolfglass-sync \
+            tools/wolfssl-compliance-tooling-sync \
             tests/test_gen_sbom.py \
             tests/test_sbom.py \
             tests/test_sbom_identity.py \
             tests/test_low_findings.py \
             tests/test_iar_sbom.py \
-            tests/test_wolfglass_sync.py
+            tests/test_wolfssl_compliance_tooling_sync.py
 
       - name: Run generator unit tests
         run: python -m unittest tests/test_gen_sbom.py
@@ -71,8 +71,8 @@ jobs:
       - name: Run IAR frontend tests
         run: python -m unittest tests/test_iar_sbom.py
 
-      - name: Run wolfglass-sync tests
-        run: python -m unittest tests/test_wolfglass_sync.py
+      - name: Run wolfssl-compliance-tooling-sync tests
+        run: python -m unittest tests/test_wolfssl_compliance_tooling_sync.py
 
       - name: Run self-test
         run: python tests/test_sbom.py
