@@ -88,7 +88,7 @@ Two workflows live centrally in wolfssl-compliance-tooling, not duplicated per p
   runs the integration self-test.
 - **`.github/workflows/sbom-reusable.yml`** — a reusable workflow a product
   calls with its own build command and name prefix. It optionally re-clones
-  wolfssl-compliance-tooling at a pinned ref to rdrift check, builds the SBOM,
+  wolfssl-compliance-tooling at a pinned ref for a drift check, builds the SBOM,
   validates it with `validate_sbom.py --name-prefix`, and greps the output
   for absolute host paths (`/home/`, `/Users/`, `/root/`) as a hard CI gate
   backstopping the driver's own scrub.
