@@ -32,8 +32,13 @@ These tools run for wolfSSL only. Do not vendor them into a product.
 
       python3 central/csaf-fetch \
           --url https://www.wolfssl.com/.well-known/csaf \
-          --out /tmp/csaf
+          --out /tmp/csaf \
+          --vex
       python3 central/csaf-verify --root /tmp/csaf
+
+  `--vex` also fetches `name.cdx.json` beside each CSAF file. The command
+  fails when that file is missing, when its CVE ids differ, or when a VEX
+  entry has no CVSS v4 score.
 - `advisory-vex-overlay.schema.json` — the per-CVE overlay schema.
 - `advisory-vex-overlay.example.json` — an overlay example.
 

@@ -26,10 +26,11 @@ jobs:
         with:
           python-version: '3.x'
 
-      - name: Download the provider directory and verify hashes
+      - name: Download the provider directory and verify hashes and VEX
         run: |
           python3 central/csaf-fetch \
             --url https://www.wolfssl.com/.well-known/csaf \
-            --out "${RUNNER_TEMP}/csaf"
+            --out "${RUNNER_TEMP}/csaf" \
+            --vex
           python3 central/csaf-verify \
             --root "${RUNNER_TEMP}/csaf"

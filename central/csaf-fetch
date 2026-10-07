@@ -9,10 +9,16 @@ document and for provider-metadata.json.
 It does not fetch .asc files. An unsigned tree (role csaf_provider) has
 none. csaf-verify checks signatures only when --fingerprint is passed.
 
+--vex also downloads the CycloneDX file beside each CSAF document
+(`name.json` -> `name.cdx.json`) and checks that the CVE ids match and
+that each VEX entry has a CVSS v4 score. A missing VEX file fails the
+command. Those files are not listed in index.txt.
+
 Pure stdlib.
 """
 
 import argparse
+import json
 import pathlib
 import sys
 import urllib.error
@@ -63,7 +69,61 @@ def _write(out, rel, data):
     dest.write_bytes(data)
 
 
-def fetch_tree(base_url, out_dir, timeout=60):
+def vex_rel(csaf_rel):
+    """CycloneDX path published beside a CSAF document."""
+    if not csaf_rel.endswith('.json') or csaf_rel.endswith('.cdx.json'):
+        raise FetchError(f'not a CSAF document path: {csaf_rel}')
+    return csaf_rel[:-len('.json')] + '.cdx.json'
+
+
+def _cve_ids(doc, key):
+    ids = []
+    for vuln in doc.get('vulnerabilities') or []:
+        value = vuln.get(key)
+        if value:
+            ids.append(value)
+    return ids
+
+
+def check_vex_file(csaf_path, vex_path):
+    """Return a problem string, or None when the VEX matches the CSAF."""
+    if not vex_path.is_file():
+        return f'missing VEX {vex_path.name}'
+    try:
+        csaf = json.loads(csaf_path.read_text())
+        vex = json.loads(vex_path.read_text())
+    except json.JSONDecodeError as e:
+        return f'{vex_path.name}: {e}'
+    csaf_ids = _cve_ids(csaf, 'cve')
+    vex_ids = _cve_ids(vex, 'id')
+    if not csaf_ids:
+        return f'{csaf_path.name} has no CVE ids'
+    if set(csaf_ids) != set(vex_ids) or len(csaf_ids) != len(vex_ids):
+        return (f'{vex_path.name} CVE set does not match {csaf_path.name}')
+    missing_score = []
+    for vuln in vex.get('vulnerabilities') or []:
+        ratings = vuln.get('ratings') or []
+        if not any(r.get('method') == 'CVSSv4' and r.get('score') is not None
+                   for r in ratings):
+            missing_score.append(vuln.get('id'))
+    if missing_score:
+        return f'{vex_path.name} missing CVSS v4: {", ".join(missing_score)}'
+    return None
+
+
+def check_vex_tree(out_dir, rels):
+    """Check each CSAF document against its sibling CycloneDX file."""
+    out = pathlib.Path(out_dir)
+    problems = []
+    for rel in rels:
+        err = check_vex_file(out / rel, out / vex_rel(rel))
+        if err:
+            problems.append(err)
+    if problems:
+        raise FetchError('; '.join(problems))
+
+
+def fetch_tree(base_url, out_dir, timeout=60, with_vex=False):
     """Download the provider tree into out_dir. Return the index path count."""
     base = base_url.strip().rstrip('/') + '/'
     out = pathlib.Path(out_dir)
@@ -79,7 +139,7 @@ def fetch_tree(base_url, out_dir, timeout=60):
     for algo in ('sha256', 'sha512'):
         pull(f'provider-metadata.json.{algo}')
 
-    count = 0
+    rels = []
     for line in index_bytes.decode('utf-8').splitlines():
         rel = safe_rel(line)
         if rel is None:
@@ -87,10 +147,14 @@ def fetch_tree(base_url, out_dir, timeout=60):
         pull(rel)
         for algo in ('sha256', 'sha512'):
             pull(f'{rel}.{algo}')
-        count += 1
-    if count == 0:
+        if with_vex:
+            pull(vex_rel(rel))
+        rels.append(rel)
+    if not rels:
         raise FetchError('index.txt is empty')
-    return count
+    if with_vex:
+        check_vex_tree(out, rels)
+    return len(rels)
 
 
 def main(argv=None):
@@ -102,12 +166,16 @@ def main(argv=None):
                    help='Directory to write. Created if missing.')
     p.add_argument('--timeout', type=int, default=60,
                    help='Per-request timeout in seconds.')
+    p.add_argument('--vex', action='store_true',
+                   help='Also fetch name.cdx.json beside each CSAF document '
+                        'and fail if it is missing or does not match.')
     args = p.parse_args(argv)
     try:
-        n = fetch_tree(args.url, args.out, timeout=args.timeout)
+        n = fetch_tree(args.url, args.out, timeout=args.timeout, with_vex=args.vex)
     except FetchError as e:
         sys.exit(f'ERROR: {e}')
-    print(f'OK: fetched {n} document(s) into {args.out}')
+    extra = ' and VEX' if args.vex else ''
+    print(f'OK: fetched {n} document(s){extra} into {args.out}')
     return 0
 
 
