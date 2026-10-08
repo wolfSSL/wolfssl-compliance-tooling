@@ -32,17 +32,20 @@ jobs:
             central/advisory-completeness \
             central/csaf-publish \
             central/csaf-verify \
+            central/csaf-fetch \
             central/csaf-keygen \
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
-            central/test_csaf_publish.py
+            central/test_csaf_publish.py \
+            central/test_csaf_fetch.py
 
       - name: Unit tests
         run: |
           python3 -m unittest \
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
-            central/test_csaf_publish.py
+            central/test_csaf_publish.py \
+            central/test_csaf_fetch.py
 
       - name: Completeness gate for every release directory
         run: |
