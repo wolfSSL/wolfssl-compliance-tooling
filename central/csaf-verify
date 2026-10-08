@@ -55,13 +55,19 @@ def _index_paths(root):
 
 
 def _disk_docs(root):
-    """CSAF documents on disk: TLP/year/*.json, excluding hash sidecars."""
+    """CSAF documents on disk: TLP/year/*.json, excluding hash sidecars.
+
+    A sibling CycloneDX file is name.cdx.json. Path.suffix is still .json,
+    so that name must be skipped. Those files are not in index.txt.
+    """
     found = []
     for tlp in ('white', 'green', 'amber', 'red'):
         tlp_dir = root / tlp
         if not tlp_dir.is_dir():
             continue
         for p in tlp_dir.glob('*/*.json'):
+            if p.name.endswith('.cdx.json'):
+                continue
             if p.suffix == '.json':
                 found.append(p.relative_to(root).as_posix())
     return found
