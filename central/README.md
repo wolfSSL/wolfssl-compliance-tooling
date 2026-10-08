@@ -30,8 +30,10 @@ These tools run for wolfSSL only. Do not vendor them into a product.
   gate. Put one machine line on a bullet when the prose is not that shape.
   `defines=` with no names means the default build is affected, and the
   script does not guess. A line that starts with `VEX:` is machine input.
-  Spaces around commas are allowed. Any other shape stops the command and
-  writes nothing.
+  The prefix has no space before the colon. `vex:` and `VEX :` stop the
+  command and write nothing. Spaces around commas are allowed. One machine
+  line per bullet. A second `VEX:` line stops the command and writes nothing.
+  Any other shape stops the command and writes nothing.
 
       VEX: fixed=5.9.4; defines=HAVE_ALPN
       VEX: fixed=5.9.4; defines=HAVE_ALPN, OPENSSL_EXTRA

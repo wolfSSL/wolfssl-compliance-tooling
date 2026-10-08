@@ -11,9 +11,11 @@ not invent the per-CVE determination. This tool fills that gap with a draft:
   * `fixed_versions` set to this release,
   * `requires_defines` only when a build macro sits next to a gating phrase
     (`--enable-… (MACRO)`, `(MACRO / --enable-…)`, `define MACRO`,
-    `support (MACRO)`, …), or when the bullet carries a `VEX:` line.
-    A line that starts with `VEX:` is machine input. Spaces around commas
-    are allowed. Any other shape stops the command.
+    `support (MACRO)`, …), or when the bullet carries one `VEX:` line.
+    That line is machine input. The prefix is `VEX:` with no space before
+    the colon. `vex:` and `VEX :` stop the command. Spaces around commas
+    are allowed. A second `VEX:` line on the same bullet stops the command.
+    Any other shape stops the command. The overlay file is not written.
 
 Existing overlay keys are left unchanged, so a second run does not wipe a
 review. The command prints a REVIEW line for every macro it guessed and for
@@ -75,8 +77,10 @@ _PAREN_PAIR_RE = re.compile(
     r')\s*\)'
 )
 # One machine line per bullet. defines= with no names means the default build.
-# Spaces around commas are part of the grammar. Anything else that starts
-# with VEX: is an error, not prose.
+# Spaces around commas are part of the grammar. The prefix is exactly `VEX:`.
+# `vex:` and `VEX :` match the attempt pattern and are rejected, so they
+# cannot fall through into the detail text.
+_VEX_ATTEMPT_RE = re.compile(r'^vex\s*:', re.IGNORECASE)
 _VEX_LINE_RE = re.compile(
     r'^VEX:\s*fixed=([0-9]+\.[0-9]+(?:\.[0-9]+)?)\s*;\s*defines=(.*)$'
 )
@@ -160,12 +164,13 @@ def bullet_bodies(block_lines):
 def first_paragraph(body_lines):
     """First non-empty paragraph, with internal whitespace collapsed.
 
-    A `VEX:` line is machine input. It is not part of the detail text.
+    A VEX machine line is not part of the detail text. A bad prefix
+    (`vex:`, `VEX :`) is rejected in parse_vex_line before this runs.
     """
     chunks = []
     for line in body_lines:
         stripped = line.strip()
-        if stripped.startswith('VEX:'):
+        if _VEX_ATTEMPT_RE.match(stripped):
             continue
         if stripped == '':
             if chunks:
@@ -234,30 +239,31 @@ def _parse_defines(raw):
 def parse_vex_line(body_lines):
     """Return the bullet's `VEX:` line, or None when the bullet has none.
 
-    The dict has `fixed`, `defines` (a list), and `error` (a string or None).
+    The dict has `fixed` and `defines` (a list).
     A present line is authoritative: the caller must not also guess.
-    A line that starts with `VEX:` and does not match the grammar stops
-    the command. It is not prose.
+    A line that looks like a VEX line and does not match the grammar stops
+    the command. `vex:` and `VEX :` are that case. They are not prose.
+    A second VEX line on the same bullet stops the command. The caller
+    writes nothing.
     """
     found = None
     for line in body_lines:
         stripped = line.strip()
-        if not stripped.startswith('VEX:'):
+        if not _VEX_ATTEMPT_RE.match(stripped):
             continue
         m = _VEX_LINE_RE.match(stripped)
         names = _parse_defines(m.group(2)) if m else None
         if m is None or names is None:
             _reject_vex_line(stripped)
         if found is not None:
-            return {
-                'fixed': found['fixed'],
-                'defines': [],
-                'error': 'more than one VEX line. None were applied.',
-            }
+            sys.exit(
+                'ERROR: more than one VEX line on one bullet. '
+                'Put one "VEX: fixed=<version>; defines=<MACRO>" line '
+                'on the bullet. Nothing was written.'
+            )
         found = {
             'fixed': m.group(1),
             'defines': names,
-            'error': None,
         }
     return found
 
@@ -309,23 +315,21 @@ def draft_entry(product, release, body_lines):
     """One overlay object plus REVIEW notes. Notes are not written to JSON."""
     vex = parse_vex_line(body_lines)
     paragraph = first_paragraph(body_lines)
-    prose = [line for line in body_lines if not line.strip().startswith('VEX:')]
+    prose = [line for line in body_lines
+             if not _VEX_ATTEMPT_RE.match(line.strip())]
     full = re.sub(r'\s+', ' ', ' '.join(line.strip() for line in prose if line.strip()))
     notes = []
     if vex is not None:
-        macros = [] if vex['error'] else vex['defines']
+        macros = vex['defines']
         bare_flags = []
-        if vex['error']:
-            notes.append(vex['error'])
-        elif vex['fixed'] != release:
+        if vex['fixed'] != release:
             notes.append(
                 f"VEX fixed={vex['fixed']} does not match this release ({release})."
             )
-        if not vex['error']:
-            if macros:
-                notes.append('requires_defines from the VEX line: ' + ', '.join(macros))
-            else:
-                notes.append('VEX line sets no requires_defines. The default build is affected.')
+        if macros:
+            notes.append('requires_defines from the VEX line: ' + ', '.join(macros))
+        else:
+            notes.append('VEX line sets no requires_defines. The default build is affected.')
     else:
         macros, bare_flags = guess_defines(full)
     if paragraph:

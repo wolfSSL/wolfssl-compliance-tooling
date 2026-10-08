@@ -160,6 +160,36 @@ class VexLineTests(unittest.TestCase):
             aod.draft_entry('wolfSSL', '5.9.4', body)
         self.assertIn('malformed VEX line', str(cm.exception))
 
+    def test_lowercase_vex_prefix_is_rejected(self):
+        body = [
+            'ALPN parsing overread.',
+            'vex: fixed=5.9.4; defines=HAVE_ALPN',
+        ]
+        with self.assertRaises(SystemExit) as cm:
+            aod.draft_entry('wolfSSL', '5.9.4', body)
+        self.assertIn('malformed VEX line', str(cm.exception))
+        self.assertIn('vex:', str(cm.exception))
+
+    def test_space_before_the_vex_colon_is_rejected(self):
+        body = [
+            'ALPN parsing overread.',
+            'VEX : fixed=5.9.4; defines=HAVE_ALPN',
+        ]
+        with self.assertRaises(SystemExit) as cm:
+            aod.draft_entry('wolfSSL', '5.9.4', body)
+        self.assertIn('malformed VEX line', str(cm.exception))
+        self.assertNotIn('ALPN parsing overread. VEX', str(cm.exception))
+
+    def test_two_vex_lines_are_rejected(self):
+        body = [
+            'ALPN parsing overread.',
+            'VEX: fixed=5.9.4; defines=HAVE_ALPN',
+            'VEX: fixed=5.9.4; defines=OPENSSL_EXTRA',
+        ]
+        with self.assertRaises(SystemExit) as cm:
+            aod.draft_entry('wolfSSL', '5.9.4', body)
+        self.assertIn('more than one VEX line', str(cm.exception))
+
 
 class BulletTests(unittest.TestCase):
     def setUp(self):
@@ -327,6 +357,38 @@ class CliTests(unittest.TestCase):
             self.assertNotEqual(run.returncode, 0)
             self.assertIn('malformed VEX line', run.stderr)
             self.assertEqual(overlay.read_text(), '{}\n')
+
+    def test_bad_vex_prefix_and_a_second_line_write_nothing(self):
+        cases = (
+            '  vex: fixed=5.9.4; defines=HAVE_ALPN\n',
+            '  VEX : fixed=5.9.4; defines=HAVE_ALPN\n',
+            '  VEX: fixed=5.9.4; defines=HAVE_ALPN\n'
+            '  VEX: fixed=5.9.4; defines=OPENSSL_EXTRA\n',
+        )
+        for extra in cases:
+            with self.subTest(extra=extra):
+                with tempfile.TemporaryDirectory() as tmp:
+                    root = pathlib.Path(tmp)
+                    changelog = root / 'ChangeLog.md'
+                    changelog.write_text(
+                        '# wolfSSL Release 5.9.4 (Sep 17, 2026)\n'
+                        '## Vulnerabilities\n'
+                        '* [High] CVE-2026-99991\n'
+                        '  ALPN parsing overread.\n'
+                        + extra
+                    )
+                    overlay = root / 'vex-overlay.json'
+                    overlay.write_text('{}\n')
+                    run = subprocess.run(
+                        [sys.executable, str(SCRIPT),
+                         '--release', '5.9.4',
+                         '--changelog', str(changelog),
+                         '--overlay', str(overlay)],
+                        check=False, capture_output=True, text=True)
+                    self.assertNotEqual(run.returncode, 0, run.stdout)
+                    self.assertNotIn('ALPN parsing overread. vex', run.stdout)
+                    self.assertNotIn('ALPN parsing overread. VEX', run.stdout)
+                    self.assertEqual(overlay.read_text(), '{}\n')
 
 
 if __name__ == '__main__':
