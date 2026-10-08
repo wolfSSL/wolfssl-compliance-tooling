@@ -30,11 +30,13 @@ jobs:
           python3 -m py_compile \
             central/gen-advisory \
             central/advisory-completeness \
+            central/advisory-overlay-draft \
             central/csaf-publish \
             central/csaf-verify \
             central/csaf-keygen \
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
+            central/test_advisory_overlay_draft.py \
             central/test_csaf_publish.py
 
       - name: Unit tests
@@ -42,6 +44,7 @@ jobs:
           python3 -m unittest \
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
+            central/test_advisory_overlay_draft.py \
             central/test_csaf_publish.py
 
       - name: Completeness gate for every release directory
