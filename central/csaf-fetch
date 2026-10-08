@@ -11,8 +11,8 @@ none. csaf-verify checks signatures only when --fingerprint is passed.
 
 --vex also downloads the CycloneDX file beside each CSAF document
 (`name.json` -> `name.cdx.json`) and checks that the CVE ids match and
-that each VEX entry has a CVSS v4 score. A missing VEX file fails the
-command. Those files are not listed in index.txt.
+that each VEX entry has a CVSS v4 score from 0 to 10. A missing VEX
+file fails the command. Those files are not listed in index.txt.
 
 Pure stdlib.
 """
@@ -85,6 +85,22 @@ def _cve_ids(doc, key):
     return ids
 
 
+def has_cvss_v4_score(ratings):
+    """True when one rating is CVSS v4 and its score is a number from 0 to 10.
+
+    A JSON boolean is an int in Python, so True and False are rejected.
+    """
+    for rating in ratings:
+        if rating.get('method') != 'CVSSv4':
+            continue
+        score = rating.get('score')
+        if isinstance(score, bool) or not isinstance(score, (int, float)):
+            continue
+        if 0 <= score <= 10:
+            return True
+    return False
+
+
 def check_vex_file(csaf_path, vex_path):
     """Return a problem string, or None when the VEX matches the CSAF."""
     if not vex_path.is_file():
@@ -103,8 +119,7 @@ def check_vex_file(csaf_path, vex_path):
     missing_score = []
     for vuln in vex.get('vulnerabilities') or []:
         ratings = vuln.get('ratings') or []
-        if not any(r.get('method') == 'CVSSv4' and r.get('score') is not None
-                   for r in ratings):
+        if not has_cvss_v4_score(ratings):
             missing_score.append(vuln.get('id'))
     if missing_score:
         return f'{vex_path.name} missing CVSS v4: {", ".join(missing_score)}'

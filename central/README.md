@@ -37,8 +37,9 @@ These tools run for wolfSSL only. Do not vendor them into a product.
       python3 central/csaf-verify --root /tmp/csaf
 
   `--vex` also fetches `name.cdx.json` beside each CSAF file. The command
-  fails when that file is missing, when its CVE ids differ, or when a VEX
-  entry has no CVSS v4 score.
+  fails when that file is missing, when its CVE ids differ, or when a CVSS
+  v4 score is not a number from 0 to 10. `csaf-verify` skips `*.cdx.json`.
+  Those files are not CSAF documents and they are not in `index.txt`.
 - `advisory-vex-overlay.schema.json` — the per-CVE overlay schema.
 - `advisory-vex-overlay.example.json` — an overlay example.
 

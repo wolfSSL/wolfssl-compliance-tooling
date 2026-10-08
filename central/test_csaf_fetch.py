@@ -94,6 +94,20 @@ class FetchTests(unittest.TestCase):
             self.assertEqual((out / 'white/2026/cve-2026-1.json').read_bytes(), doc)
             self.assertEqual((out / 'provider-metadata.json').read_bytes(), meta)
 
+    def test_cvss_v4_score_is_a_number_from_0_to_10(self):
+        self.assertTrue(fetch.has_cvss_v4_score(
+            [{'method': 'CVSSv4', 'score': 0}]))
+        self.assertTrue(fetch.has_cvss_v4_score(
+            [{'method': 'CVSSv4', 'score': 10}]))
+        self.assertTrue(fetch.has_cvss_v4_score(
+            [{'method': 'CVSSv4', 'score': 7.5}]))
+        for bad in (None, False, True, '', '7.5', -0.1, 10.1):
+            self.assertFalse(
+                fetch.has_cvss_v4_score([{'method': 'CVSSv4', 'score': bad}]),
+                bad)
+        self.assertFalse(fetch.has_cvss_v4_score(
+            [{'method': 'CVSSv3', 'score': 7.5}]))
+
     def test_vex_must_match_the_csaf_cve_list(self):
         csaf = {
             'vulnerabilities': [
