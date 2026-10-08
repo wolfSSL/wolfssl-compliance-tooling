@@ -186,8 +186,15 @@ if '--export-secret-keys' in args:
     sys.stderr.write('refusing to export a secret key\\n')
     sys.exit(3)
 if '--fingerprint' in args:
-    sys.stdout.write(
-        'fpr:::::::::ABCDEF0123456789ABCDEF0123456789ABCDEF01:\\n')
+    primary = 'ABCDEF0123456789ABCDEF0123456789ABCDEF01'
+    sub = '1111111111111111111111111111111111111111'
+    key = args[-1].upper()
+    if key == sub:
+        sys.stdout.write(
+            'fpr:::::::::' + primary + ':\\n'
+            'fpr:::::::::' + sub + ':\\n')
+    else:
+        sys.stdout.write('fpr:::::::::' + primary + ':\\n')
     sys.exit(0)
 if '--export' in args:
     sys.stdout.buffer.write(b'-----BEGIN PGP PUBLIC KEY BLOCK-----\\n\\n')
@@ -214,6 +221,18 @@ class GpgSignTests(unittest.TestCase):
             pub.parse_gpg_fingerprints(text),
             ['ABCDEF0123456789ABCDEF0123456789ABCDEF01',
              '1111111111111111111111111111111111111111'])
+
+    def test_subkey_fingerprint_is_rejected(self):
+        found = [
+            'ABCDEF0123456789ABCDEF0123456789ABCDEF01',
+            '1111111111111111111111111111111111111111',
+        ]
+        primary = found[0]
+        self.assertEqual(pub.select_primary_fingerprint(primary, found), primary)
+        with self.assertRaises(SystemExit) as cm:
+            pub.select_primary_fingerprint(found[1], found)
+        self.assertIn('subkey fingerprint', str(cm.exception))
+        self.assertIn(primary, str(cm.exception))
 
     def test_rejects_a_key_that_is_not_a_fingerprint(self):
         with self.assertRaises(SystemExit):
@@ -335,6 +354,50 @@ class GpgSignTests(unittest.TestCase):
                 else:
                     os.environ['GPG_ARGV_LOG'] = saved_log
             self.assertFalse(log.exists())
+
+    def test_main_rejects_a_subkey_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            gpg = bindir / 'gpg'
+            gpg.write_text(_FAKE_GPG)
+            gpg.chmod(0o755)
+            log = root / 'gpg-argv.log'
+            docs = root / 'docs'
+            _write_sample_csaf(docs)
+            out = root / 'publish'
+            saved_path = os.environ.get('PATH')
+            saved_log = os.environ.get('GPG_ARGV_LOG')
+            os.environ['PATH'] = str(bindir) + os.pathsep + (saved_path or '')
+            os.environ['GPG_ARGV_LOG'] = str(log)
+            import sys
+            argv = sys.argv
+            sub = '1111111111111111111111111111111111111111'
+            try:
+                sys.argv = [
+                    'csaf-publish',
+                    '--docs-dir', str(docs),
+                    '--out-root', str(out),
+                    '--gpg-key', sub,
+                ]
+                with self.assertRaises(SystemExit) as cm:
+                    pub.main()
+                self.assertIn('subkey fingerprint', str(cm.exception))
+            finally:
+                sys.argv = argv
+                if saved_path is None:
+                    os.environ.pop('PATH', None)
+                else:
+                    os.environ['PATH'] = saved_path
+                if saved_log is None:
+                    os.environ.pop('GPG_ARGV_LOG', None)
+                else:
+                    os.environ['GPG_ARGV_LOG'] = saved_log
+            recorded = log.read_text()
+            self.assertIn('--fingerprint', recorded)
+            self.assertNotIn('--detach-sign', recorded)
+            self.assertNotIn('--export', recorded)
 
     def test_gpg_key_and_key_file_together_fail(self):
         import sys

@@ -39,11 +39,13 @@ import subprocess
 import sys
 
 _CANON_STRIP = re.compile(r'[^+\-a-z0-9]')
-# Full fingerprint only. A short key id can match more than one key, and
-# `gpg --export` then writes every match. No free-form user id: the value
-# is passed to gpg as --local-user. --default-key is only a hint, so an
-# expired, revoked, or public-only key can still exit 0 after another key
-# signs.
+# Full primary fingerprint only. A short key id can match more than one
+# key, and `gpg --export` then writes every match. A subkey fingerprint is
+# rejected: `gpg --fingerprint` prints the primary fingerprint first, and
+# using that value would advertise a different key than the one requested.
+# No free-form user id: the value is passed to gpg as --local-user.
+# --default-key is only a hint, so an expired, revoked, or public-only key
+# can still exit 0 after another key signs.
 _GPG_KEY_RE = re.compile(r'^(?:0x)?[0-9A-Fa-f]{40}$')
 
 
@@ -131,6 +133,24 @@ def parse_gpg_fingerprints(colons_text):
     return found
 
 
+def select_primary_fingerprint(requested, found):
+    """Return the primary fingerprint. Reject a subkey fingerprint.
+
+    `gpg --with-colons --fingerprint` prints the primary fingerprint first
+    and each subkey fingerprint after it. The published key id must be the
+    fingerprint the operator passed.
+    """
+    wanted = requested.upper()
+    if not found or wanted not in found:
+        sys.exit(f'ERROR: gpg printed no fingerprint for {wanted}.')
+    if found[0] != wanted:
+        sys.exit(
+            f'ERROR: --gpg-key {wanted} is a subkey fingerprint. '
+            f'The primary fingerprint is {found[0]}. '
+            'Pass the primary fingerprint. Nothing was signed.')
+    return found[0]
+
+
 def _gpg_fingerprint(key_id):
     result = subprocess.run(
         ['gpg', '--batch', '--with-colons', '--fingerprint', key_id],
@@ -138,10 +158,7 @@ def _gpg_fingerprint(key_id):
     if result.returncode != 0:
         err = (result.stderr or result.stdout or '').strip()
         sys.exit(f'ERROR: gpg could not read key {key_id}: {err}')
-    found = parse_gpg_fingerprints(result.stdout)
-    if not found:
-        sys.exit(f'ERROR: gpg printed no fingerprint for {key_id}.')
-    return found[0]
+    return select_primary_fingerprint(key_id, parse_gpg_fingerprints(result.stdout))
 
 
 def _gpg_export_pubkey(key_id, dest):
@@ -224,11 +241,12 @@ def main():
                    help='ASCII-armored OpenPGP secret key (pgpy). '
                         'For a test keyring only. Omit to skip signing.')
     p.add_argument('--gpg-key', default=None,
-                   help='Full 40-hex fingerprint of a gpg key already in '
-                        'the local keyring. Signs with '
+                   help='Full 40-hex primary fingerprint of a gpg key already '
+                        'in the local keyring. Signs with '
                         'gpg --local-user --armor --detach-sign. A short '
-                        'key id is rejected. The secret key is not '
-                        'exported. Do not combine with --key-file.')
+                        'key id and a subkey fingerprint are rejected. '
+                        'The secret key is not exported. Do not combine '
+                        'with --key-file.')
     args = p.parse_args()
     if args.key_file and args.gpg_key:
         sys.exit('ERROR: pass only one of --key-file and --gpg-key.')
