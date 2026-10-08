@@ -29,10 +29,15 @@
 #   SBOM_DEP_WOLFSSL    yes | no - record wolfSSL as a dependency.  Default: no.
 #   SBOM_DEP_OPENSSL    yes | no - record OpenSSL as a dependency (wolfProvider /
 #                       wolfEngine).  Default: no.
+#   SBOM_DEP_LIBZ       yes | no - record zlib.  Pass the product's real
+#                       option (wolfSSL WOLFSSL_LIBZ / --with-libz).  Default:
+#                       unset, so gen-sbom keeps its own default of no.
 #   SBOM_LICENSE_OVERRIDE  SPDX expression to record instead of the licence
 #                       detected from SBOM_LICENSE_FILE.
 #   SBOM_LICENSE_TEXT   Path to licence text for any LicenseRef-* used in
 #                       SBOM_LICENSE_OVERRIDE (required by SPDX 2.3).
+#   SBOM_DOCUMENT_NAMESPACE  SPDX documentNamespace.  Default: the
+#                       generator's deterministic urn:uuid.
 #   SBOM_WOLFSSL_VERSION   Version recorded for the wolfSSL dependency.  When
 #                       unset and WOLFSSL_DIR is set, it is read from that tree:
 #                       wolfssl/version.h, else configure.ac (version.h is
@@ -236,6 +241,18 @@ sbom:
 	    else \
 	        echo "NOTE: this gen-sbom has no --dep-openssl support; openssl will"; \
 	        echo "      not be listed as a dependency component."; \
+	    fi; \
+	fi; \
+	if test -n "$(SBOM_DEP_LIBZ)"; then \
+	    if $(PYTHON3) "$(SBOM_GEN)" --help 2>/dev/null \
+	        | $(GREP) -q -- '--dep-libz'; then \
+	        dep_args="$$dep_args --dep-libz $(SBOM_DEP_LIBZ)"; \
+	    fi; \
+	fi; \
+	if test -n "$(SBOM_DOCUMENT_NAMESPACE)"; then \
+	    if $(PYTHON3) "$(SBOM_GEN)" --help 2>/dev/null \
+	        | $(GREP) -q -- '--document-namespace'; then \
+	        dep_args="$$dep_args --document-namespace '$(SBOM_DOCUMENT_NAMESPACE)'"; \
 	    fi; \
 	fi; \
 	$(PYTHON3) "$(SBOM_GEN)" \

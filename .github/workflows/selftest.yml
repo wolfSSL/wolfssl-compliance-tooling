@@ -51,6 +51,7 @@ jobs:
             tests/test_sbom_identity.py \
             tests/test_low_findings.py \
             tests/test_iar_sbom.py \
+            tests/test_sbom_cmake_install.py \
             tests/test_wolfglass_sync.py
 
       - name: Run generator unit tests
@@ -70,6 +71,9 @@ jobs:
 
       - name: Run IAR frontend tests
         run: python -m unittest tests/test_iar_sbom.py
+
+      - name: Run CMake SBOM install tests
+        run: python -m unittest tests/test_sbom_cmake_install.py
 
       - name: Run wolfglass-sync tests
         run: python -m unittest tests/test_wolfglass_sync.py
