@@ -42,8 +42,10 @@ jobs:
             central/test_advisory_completeness.py \
             central/csaf-publish \
             central/csaf-verify \
+            central/csaf-fetch \
             central/csaf-keygen \
             central/test_csaf_publish.py \
+            central/test_csaf_fetch.py \
             provenance/bomsh_verify.py \
             tools/wolfglass-sync \
             tests/test_gen_sbom.py \
@@ -60,7 +62,7 @@ jobs:
         run: python -m unittest central/test_gen_advisory.py
 
       - name: Run advisory completeness and publish unit tests
-        run: python -m unittest central/test_advisory_completeness.py central/test_csaf_publish.py
+        run: python -m unittest central/test_advisory_completeness.py central/test_csaf_publish.py central/test_csaf_fetch.py
 
       - name: Run SBOM identity tests
         run: python -m unittest tests/test_sbom_identity.py

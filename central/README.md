@@ -25,6 +25,15 @@ These tools run for wolfSSL only. Do not vendor them into a product.
   not in git. Honors `SOURCE_DATE_EPOCH`.
 - `csaf-verify` — consumer-side check. Walks `index.txt` and hash sidecars.
   Signature checks require `--fingerprint` matching provider-metadata.json.
+- `csaf-fetch` — download a published provider directory by `index.txt`.
+  The folder URL returns 403, so this does not list the folder. A monthly
+  workflow runs this against the website and then runs `csaf-verify`.
+  It does not pass `--fingerprint` until the site publishes `.asc` files.
+
+      python3 central/csaf-fetch \
+          --url https://www.wolfssl.com/.well-known/csaf \
+          --out /tmp/csaf
+      python3 central/csaf-verify --root /tmp/csaf
 - `advisory-vex-overlay.schema.json` — the per-CVE overlay schema.
 - `advisory-vex-overlay.example.json` — an overlay example.
 
