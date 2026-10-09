@@ -1,4 +1,4 @@
-# sbom.mk - shared plain-Make fragment for wolfGlass SBOM generation.
+# sbom.mk - shared plain-Make fragment for wolfssl-compliance-tooling SBOM generation.
 #
 # One driver does the work; each product describes itself with a few variables
 # and includes this fragment to get an `sbom` target. It is the plain-Make
@@ -68,6 +68,8 @@
 #   SBOM_DEP_WOLFCRYPT    yes/no - record wolfCrypt as a nested component
 #                         (PURL; matching uses the wolfssl CPE).
 #   SBOM_DEP_OPENSSL      yes/no - record OpenSSL as a dependency.
+#   SBOM_DEP_LIBZ         yes/no - record zlib. Pass the product's real option.
+#   SBOM_DOCUMENT_NAMESPACE  SPDX documentNamespace override.
 #   SBOM_CRYPTO_ONLY      auto/yes/no - whether only the wolfCrypt subset of
 #                         the wolfSSL release is compiled in. Default auto:
 #                         read WOLFCRYPT_ONLY out of the captured macros,
@@ -86,14 +88,14 @@
 # The driver path is derived from this fragment's own location, so a product
 # that vendors share/ into tools/sbom/ needs no path configuration.
 #
-# Source-list staging uses $(CURDIR)/.<target>-wolfglass-srcs.txt (not mktemp).
+# Source-list staging uses $(CURDIR)/.<target>-wolfssl-compliance-tooling-srcs.txt (not mktemp).
 # GNU Make expands $${TMPDIR:-/tmp} as an empty Make variable named
-# "TMPDIR:-/tmp", which produced "/wolfglass-srcs.XXXXXX" and broke every
+# "TMPDIR:-/tmp", which produced "/wolfssl-compliance-tooling-srcs.XXXXXX" and broke every
 # host. The CURDIR file is .gitignore'd; avoid parallel make -j of the *same*
 # SBOM target (two recipes would share one staging file). Distinct targets
 # (sbom vs sbom-hal) use distinct filenames via $(1).
 #
-# Shell variables inside wolfglass_sbom_rule need $$$$name (not $$name):
+# Shell variables inside wolfssl_compliance_tooling_sbom_rule need $$$$name (not $$name):
 # $(call)/$(eval) expands the define once, then the recipe expands again.
 # $$name becomes $n + ame (empty single-letter Make var) after that double
 # expansion; $$$$name survives as $name for the shell.
@@ -108,7 +110,7 @@
 # the arithmetic to the shell, which is what the compile recipes already do.
 #
 # To instantiate a second target, set another variable prefix and call:
-#   $(eval $(call wolfglass_sbom_rule,sbom-hal,SBOM_HAL_))
+#   $(eval $(call wolfssl_compliance_tooling_sbom_rule,sbom-hal,SBOM_HAL_))
 # using SBOM_HAL_NAME, SBOM_HAL_SRCS, SBOM_HAL_CFLAGS, and so on.
 
 SBOM_MK_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
@@ -118,7 +120,7 @@ SBOM_ROOT     ?= $(CURDIR)
 SBOM_LICENSE_FILE ?= $(SBOM_ROOT)/LICENSE
 HOSTCC        ?= cc
 
-define wolfglass_sbom_rule
+define wolfssl_compliance_tooling_sbom_rule
 .PHONY: $(1)
 $(1): $($(2)PREREQS)
 	@test -n "$($(2)NAME)" || { echo "ERROR: set $(2)NAME"; exit 1; }
@@ -126,8 +128,8 @@ $(1): $($(2)PREREQS)
 	    { echo "ERROR: set $(2)SRCS or $(2)LIB"; exit 1; }
 	@set -e; \
 	if [ -n "$(strip $($(2)SRCS))" ]; then \
-	    trap 'rm -f "$(CURDIR)/.$(1)-wolfglass-srcs.txt"' EXIT INT TERM HUP; \
-	    printf '%s\n' $($(2)SRCS) > "$(CURDIR)/.$(1)-wolfglass-srcs.txt"; \
+	    trap 'rm -f "$(CURDIR)/.$(1)-wolfssl-compliance-tooling-srcs.txt"' EXIT INT TERM HUP; \
+	    printf '%s\n' $($(2)SRCS) > "$(CURDIR)/.$(1)-wolfssl-compliance-tooling-srcs.txt"; \
 	fi; \
 	dep_ver=""; \
 	if [ -n "$($(2)DEP_VERSION)" ]; then \
@@ -168,7 +170,7 @@ $(1): $($(2)PREREQS)
 	    --root "$(or $($(2)ROOT),$(SBOM_ROOT))" \
 	    --license-file "$(or $($(2)LICENSE_FILE),$(SBOM_LICENSE_FILE))" \
 	    --skip-missing \
-	    $(if $(strip $($(2)SRCS)),--srcs-file "$(CURDIR)/.$(1)-wolfglass-srcs.txt") \
+	    $(if $(strip $($(2)SRCS)),--srcs-file "$(CURDIR)/.$(1)-wolfssl-compliance-tooling-srcs.txt") \
 	    $(if $($(2)LIB),--lib "$($(2)LIB)") \
 	    $(if $(filter 1,$($(2)NO_ARTIFACT_HASH)),--no-artifact-hash) \
 	    $(if $(filter 1,$($(2)SOURCE_ONLY)),--source-only) \
@@ -186,6 +188,8 @@ $(1): $($(2)PREREQS)
 	    $(if $($(2)DEP_WOLFSSL),--dep-wolfssl "$($(2)DEP_WOLFSSL)") \
 	    $(if $($(2)DEP_WOLFCRYPT),--dep-wolfcrypt "$($(2)DEP_WOLFCRYPT)") \
 	    $(if $($(2)DEP_OPENSSL),--dep-openssl "$($(2)DEP_OPENSSL)") \
+	    $(if $($(2)DEP_LIBZ),--dep-libz "$($(2)DEP_LIBZ)") \
+	    $(if $($(2)DOCUMENT_NAMESPACE),--document-namespace "$($(2)DOCUMENT_NAMESPACE)") \
 	    $(if $($(2)CRYPTO_ONLY),--crypto-only "$($(2)CRYPTO_ONLY)") \
 	    $$$$dep_ver \
 	    $(if $(or $($(2)GEN),$(GEN_SBOM)),--gen-sbom "$(or $($(2)GEN),$(GEN_SBOM))") \
@@ -194,4 +198,4 @@ $(1): $($(2)PREREQS)
 endef
 
 SBOM_TARGET ?= sbom
-$(eval $(call wolfglass_sbom_rule,$(SBOM_TARGET),SBOM_))
+$(eval $(call wolfssl_compliance_tooling_sbom_rule,$(SBOM_TARGET),SBOM_))
