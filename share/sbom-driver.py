@@ -274,11 +274,16 @@ def main():
     ap.add_argument("--license-file", default="")
     ap.add_argument("--license-override", default="")
     ap.add_argument("--license-text", default="")
+    ap.add_argument("--document-namespace", default="",
+                    help="SPDX documentNamespace override.")
 
     # Dependencies (feature-detected against the generator).
     ap.add_argument("--dep-wolfssl", default="")
     ap.add_argument("--dep-wolfcrypt", default="")
     ap.add_argument("--dep-openssl", default="")
+    ap.add_argument("--dep-libz", default="",
+                    help="yes|no. Record zlib. Pass the product's real "
+                         "build option; gen-sbom defaults to no.")
     ap.add_argument("--dep-version", action="append", default=[],
                     help="Dependency version, e.g. wolfssl=5.9.2 (repeatable).")
     ap.add_argument("--crypto-only", default="",
@@ -396,6 +401,9 @@ def main():
             cmd += ["--license-override", args.license_override]
         if args.license_text:
             cmd += ["--license-text", args.license_text]
+        if args.document_namespace and gen_sbom_supports(
+                args.python, gen_sbom, "--document-namespace"):
+            cmd += ["--document-namespace", args.document_namespace]
 
         if args.component_type and gen_sbom_supports(
                 args.python, gen_sbom, "--component-type"):
@@ -409,6 +417,8 @@ def main():
             cmd += ["--dep-wolfcrypt", args.dep_wolfcrypt]
         if args.dep_openssl and gen_sbom_supports(args.python, gen_sbom, "--dep-openssl"):
             cmd += ["--dep-openssl", args.dep_openssl]
+        if args.dep_libz and gen_sbom_supports(args.python, gen_sbom, "--dep-libz"):
+            cmd += ["--dep-libz", args.dep_libz]
         if args.dep_version and gen_sbom_supports(args.python, gen_sbom, "--dep-version"):
             for dv in args.dep_version:
                 cmd += ["--dep-version", dv]

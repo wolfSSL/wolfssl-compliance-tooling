@@ -61,6 +61,8 @@
 #                         GPL-3.0-or-later and defaults to -only.
 #   SBOM_LICENSE_TEXT     Plain-text licence embedded for a LicenseRef-* used
 #                         in SBOM_LICENSE_OVERRIDE (required by SPDX 2.3).
+#   SBOM_DOCUMENT_NAMESPACE  SPDX documentNamespace. Default is the
+#                         generator's deterministic urn:uuid.
 #   SBOM_GEN              Path to gen-sbom. Default: driver auto-discovery.
 #   GEN_SBOM              Legacy alias for SBOM_GEN.
 #   SBOM_NO_ARTIFACT_HASH = 1   As-built FIPS/kernel: do not re-hash.
@@ -68,6 +70,8 @@
 #   SBOM_DEP_WOLFCRYPT    yes/no - record wolfCrypt as a nested component
 #                         (PURL; matching uses the wolfssl CPE).
 #   SBOM_DEP_OPENSSL      yes/no - record OpenSSL as a dependency.
+#   SBOM_DEP_LIBZ         yes/no - record zlib. Pass the product's real
+#                         option. Leave unset to keep the generator default.
 #   SBOM_CRYPTO_ONLY      auto/yes/no - whether only the wolfCrypt subset of
 #                         the wolfSSL release is compiled in. Default auto:
 #                         read WOLFCRYPT_ONLY out of the captured macros,
@@ -180,12 +184,14 @@ $(1): $($(2)PREREQS)
 	    $(if $($(2)COMPONENT_TYPE),--component-type "$($(2)COMPONENT_TYPE)") \
 	    $(if $($(2)LICENSE_OVERRIDE),--license-override '$($(2)LICENSE_OVERRIDE)') \
 	    $(if $($(2)LICENSE_TEXT),--license-text "$($(2)LICENSE_TEXT)") \
+	    $(if $($(2)DOCUMENT_NAMESPACE),--document-namespace "$($(2)DOCUMENT_NAMESPACE)") \
 	    $(if $($(2)VERSION),--version "$($(2)VERSION)") \
 	    $(if $($(2)VERSION_FILE),--version-file "$($(2)VERSION_FILE)") \
 	    $(if $($(2)VERSION_MACRO),--version-macro "$($(2)VERSION_MACRO)") \
 	    $(if $($(2)DEP_WOLFSSL),--dep-wolfssl "$($(2)DEP_WOLFSSL)") \
 	    $(if $($(2)DEP_WOLFCRYPT),--dep-wolfcrypt "$($(2)DEP_WOLFCRYPT)") \
 	    $(if $($(2)DEP_OPENSSL),--dep-openssl "$($(2)DEP_OPENSSL)") \
+	    $(if $($(2)DEP_LIBZ),--dep-libz "$($(2)DEP_LIBZ)") \
 	    $(if $($(2)CRYPTO_ONLY),--crypto-only "$($(2)CRYPTO_ONLY)") \
 	    $$$$dep_ver \
 	    $(if $(or $($(2)GEN),$(GEN_SBOM)),--gen-sbom "$(or $($(2)GEN),$(GEN_SBOM))") \
