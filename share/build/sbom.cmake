@@ -69,8 +69,8 @@
 # wolfglass_add_sbom() also creates install-sbom and uninstall-sbom.
 # install-sbom reads DESTDIR when the target runs. Output paths are the
 # caller's CDX_OUT and SPDX_OUT, so a wolfBoot config tag is installed
-# under that name. A missing tag-value file is skipped. uninstall-sbom
-# removes the same paths.
+# under that name. The tag-value file is installed only when TV_OUT is
+# set and the file exists. uninstall-sbom removes the same paths.
 #
 # These mirror the SBOM_* variables of build/sbom.mk one for one; the two
 # fragments must accept the same product description, or the same product

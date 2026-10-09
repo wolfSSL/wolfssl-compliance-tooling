@@ -40,8 +40,12 @@ class InstallScriptTests(unittest.TestCase):
         # that name. A missing tag-value file is skipped.
         cdx = self.dir / "wolfboot-stm32h7-1.2.3.cdx.json"
         spdx = self.dir / "wolfboot-stm32h7-1.2.3.spdx.json"
+        stale = self.dir / "wolfboot-stm32h7-1.2.3.spdx"
         cdx.write_text("{}\n")
         spdx.write_text("{}\n")
+        # A leftover tag-value file must stay out of the install when TV
+        # was not passed.
+        stale.write_text("stale\n")
         stage = self.dir / "stage"
         # The doc dir is the absolute install path. DESTDIR is prepended.
         doc = Path("/usr/local/share/doc/wolfboot")
@@ -57,7 +61,7 @@ class InstallScriptTests(unittest.TestCase):
         installed = stage / "usr" / "local" / "share" / "doc" / "wolfboot"
         self.assertTrue((installed / cdx.name).is_file())
         self.assertTrue((installed / spdx.name).is_file())
-        self.assertFalse((installed / "wolfboot-stm32h7-1.2.3.spdx").exists())
+        self.assertFalse((installed / stale.name).exists())
 
         tv = self.dir / "wolfboot-stm32h7-1.2.3.spdx"
         tv.write_text("SPDX\n")

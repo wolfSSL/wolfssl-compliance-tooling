@@ -3,7 +3,7 @@
 # DESTDIR=/staging cmake --build . --target install-sbom stages the files.
 #
 # The CycloneDX and SPDX JSON files must exist. The tag-value file is
-# copied when it exists and skipped when a product has not produced it.
+# copied only when the caller set its path and the file exists.
 
 if(NOT DEFINED WOLFGLASS_INSTALL_DIR OR WOLFGLASS_INSTALL_DIR STREQUAL "")
     message(FATAL_ERROR "install-sbom.cmake: WOLFGLASS_INSTALL_DIR is required")

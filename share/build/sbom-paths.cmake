@@ -1,7 +1,9 @@
 # Shared path rules for install-sbom.cmake and uninstall-sbom.cmake.
 # The names match the driver default: <bindir>/<name>-<version>.cdx.json
 # and the .spdx.json sibling. A caller that set CDX_OUT / SPDX_OUT passes
-# those paths and this file leaves them unchanged.
+# those paths and this file leaves them unchanged. The tag-value path is
+# used only when the caller sets TV / TV_OUT. A .spdx sibling is not
+# inferred, so a stale file is not installed or removed.
 
 function(_wolfglass_read_version file macro out_var)
     set(_ver "")
@@ -67,10 +69,6 @@ function(wolfglass_sbom_resolve_outputs out_cdx out_spdx out_tv)
         if(_spdx STREQUAL "")
             set(_spdx "${WOLFGLASS_SBOM_BINDIR}/${WOLFGLASS_SBOM_NAME}-${_ver}.spdx.json")
         endif()
-    endif()
-
-    if(_tv STREQUAL "" AND _spdx MATCHES "\\.spdx\\.json$")
-        string(REGEX REPLACE "\\.json$" "" _tv "${_spdx}")
     endif()
 
     set(${out_cdx} "${_cdx}" PARENT_SCOPE)
