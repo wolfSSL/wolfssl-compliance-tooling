@@ -40,6 +40,10 @@
 #   DEP_WOLFCRYPT yes|no  Record wolfCrypt as a nested component (PURL;
 #                         matching uses the wolfssl CPE).
 #   DEP_OPENSSL yes|no  Record OpenSSL as a dependency component.
+#   DEP_LIBZ yes|no   Record zlib. Pass the product's real option. The
+#                     default in gen-sbom is no.
+#   DOCUMENT_NAMESPACE <uri>  SPDX documentNamespace. Default is a
+#                     deterministic urn:uuid from the generator.
 #   CRYPTO_ONLY auto|yes|no  Whether only the wolfCrypt subset of wolfSSL is
 #                     compiled in (default auto: read from the capture).
 #   DEP_VERSION <KEY=VER>...  Explicit dependency versions. A cross build has
@@ -67,8 +71,8 @@ function(wolfssl_compliance_tooling_add_sbom)
     set(_opts NO_ARTIFACT_HASH SOURCE_ONLY)
     set(_one NAME TARGET_NAME VERSION VERSION_FILE VERSION_MACRO LICENSE
              SBOM_GEN GEN_SBOM HOSTCC ROOT LIB USER_SETTINGS OPTIONS_H SETTINGS_H
-             DEP_WOLFSSL DEP_WOLFCRYPT DEP_OPENSSL CRYPTO_ONLY
-             CDX_OUT SPDX_OUT COMPONENT_TYPE
+             DEP_WOLFSSL DEP_WOLFCRYPT DEP_OPENSSL DEP_LIBZ CRYPTO_ONLY
+             CDX_OUT SPDX_OUT COMPONENT_TYPE DOCUMENT_NAMESPACE
              LICENSE_OVERRIDE LICENSE_TEXT)
     set(_multi TARGETS DEFS DEP_VERSION INCLUDE_DIRS)
     cmake_parse_arguments(SB "${_opts}" "${_one}" "${_multi}" ${ARGN})
@@ -187,6 +191,9 @@ function(wolfssl_compliance_tooling_add_sbom)
     if(SB_LICENSE_TEXT)
         list(APPEND _cmd --license-text ${SB_LICENSE_TEXT})
     endif()
+    if(SB_DOCUMENT_NAMESPACE)
+        list(APPEND _cmd --document-namespace ${SB_DOCUMENT_NAMESPACE})
+    endif()
     if(SB_DEP_WOLFSSL)
         list(APPEND _cmd --dep-wolfssl ${SB_DEP_WOLFSSL})
     endif()
@@ -195,6 +202,9 @@ function(wolfssl_compliance_tooling_add_sbom)
     endif()
     if(SB_DEP_OPENSSL)
         list(APPEND _cmd --dep-openssl ${SB_DEP_OPENSSL})
+    endif()
+    if(SB_DEP_LIBZ)
+        list(APPEND _cmd --dep-libz ${SB_DEP_LIBZ})
     endif()
     if(SB_CRYPTO_ONLY)
         list(APPEND _cmd --crypto-only ${SB_CRYPTO_ONLY})

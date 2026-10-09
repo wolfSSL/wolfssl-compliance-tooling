@@ -68,6 +68,8 @@
 #   SBOM_DEP_WOLFCRYPT    yes/no - record wolfCrypt as a nested component
 #                         (PURL; matching uses the wolfssl CPE).
 #   SBOM_DEP_OPENSSL      yes/no - record OpenSSL as a dependency.
+#   SBOM_DEP_LIBZ         yes/no - record zlib. Pass the product's real option.
+#   SBOM_DOCUMENT_NAMESPACE  SPDX documentNamespace override.
 #   SBOM_CRYPTO_ONLY      auto/yes/no - whether only the wolfCrypt subset of
 #                         the wolfSSL release is compiled in. Default auto:
 #                         read WOLFCRYPT_ONLY out of the captured macros,
@@ -186,6 +188,8 @@ $(1): $($(2)PREREQS)
 	    $(if $($(2)DEP_WOLFSSL),--dep-wolfssl "$($(2)DEP_WOLFSSL)") \
 	    $(if $($(2)DEP_WOLFCRYPT),--dep-wolfcrypt "$($(2)DEP_WOLFCRYPT)") \
 	    $(if $($(2)DEP_OPENSSL),--dep-openssl "$($(2)DEP_OPENSSL)") \
+	    $(if $($(2)DEP_LIBZ),--dep-libz "$($(2)DEP_LIBZ)") \
+	    $(if $($(2)DOCUMENT_NAMESPACE),--document-namespace "$($(2)DOCUMENT_NAMESPACE)") \
 	    $(if $($(2)CRYPTO_ONLY),--crypto-only "$($(2)CRYPTO_ONLY)") \
 	    $$$$dep_ver \
 	    $(if $(or $($(2)GEN),$(GEN_SBOM)),--gen-sbom "$(or $($(2)GEN),$(GEN_SBOM))") \
