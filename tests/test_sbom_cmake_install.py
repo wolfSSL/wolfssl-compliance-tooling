@@ -206,6 +206,11 @@ wolfglass_add_sbom(
         self.assertIn("install-sbom", text)
         self.assertIn("uninstall-sbom", text)
         self.assertIn("demo-1.2.3.cdx.json", text)
+        # Omitted dependency options must not appear. An unquoted CMake
+        # guard would emit a bare --dep-wolfssl.
+        self.assertNotIn("--dep-wolfssl", text)
+        self.assertNotIn("--dep-openssl", text)
+        self.assertNotIn("--crypto-only", text)
 
     def test_wolftpm_style_install_depends_on_the_public_target(self):
         # The helper target is not the public sbom target. install-sbom
@@ -237,8 +242,12 @@ wolfglass_add_sbom_install(
         text = self._build_text(build)
         self.assertIn("--dep-libz", text)
         self.assertIn("wolftpm-3.4.5.spdx", text)
-        # The install rule depends on the public sbom target.
-        self.assertRegex(text, r"install-sbom:.*\bsbom\b")
+        # Makefile2 holds the add_dependencies edge. A match against
+        # install-sbom: CMakeFiles/install-sbom is the target's own rule.
+        makefile2 = (build / "CMakeFiles" / "Makefile2").read_text()
+        self.assertIn(
+            "CMakeFiles/install-sbom.dir/all: CMakeFiles/sbom.dir/all",
+            makefile2)
 
 
 if __name__ == "__main__":

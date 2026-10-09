@@ -209,23 +209,24 @@ function(wolfglass_add_sbom)
     if(SB_LICENSE_TEXT)
         list(APPEND _cmd --license-text ${SB_LICENSE_TEXT})
     endif()
-    # "no" is false in if(), so test the string. An explicit no must be
-    # passed through. Omitting it would hide a product that turned the
-    # dependency off.
-    if(NOT SB_DEP_WOLFSSL STREQUAL "")
-        list(APPEND _cmd --dep-wolfssl ${SB_DEP_WOLFSSL})
+    # cmake_parse_arguments leaves an omitted keyword undefined. An
+    # unquoted name then compares as the literal "SB_DEP_*", which is not
+    # empty, and the flag is appended with no value. Quote the expansion.
+    # "no" stays a real value and is forwarded.
+    if(NOT "${SB_DEP_WOLFSSL}" STREQUAL "")
+        list(APPEND _cmd --dep-wolfssl "${SB_DEP_WOLFSSL}")
     endif()
-    if(NOT SB_DEP_WOLFCRYPT STREQUAL "")
-        list(APPEND _cmd --dep-wolfcrypt ${SB_DEP_WOLFCRYPT})
+    if(NOT "${SB_DEP_WOLFCRYPT}" STREQUAL "")
+        list(APPEND _cmd --dep-wolfcrypt "${SB_DEP_WOLFCRYPT}")
     endif()
-    if(NOT SB_DEP_OPENSSL STREQUAL "")
-        list(APPEND _cmd --dep-openssl ${SB_DEP_OPENSSL})
+    if(NOT "${SB_DEP_OPENSSL}" STREQUAL "")
+        list(APPEND _cmd --dep-openssl "${SB_DEP_OPENSSL}")
     endif()
-    if(NOT SB_DEP_LIBZ STREQUAL "")
-        list(APPEND _cmd --dep-libz ${SB_DEP_LIBZ})
+    if(NOT "${SB_DEP_LIBZ}" STREQUAL "")
+        list(APPEND _cmd --dep-libz "${SB_DEP_LIBZ}")
     endif()
-    if(NOT SB_CRYPTO_ONLY STREQUAL "")
-        list(APPEND _cmd --crypto-only ${SB_CRYPTO_ONLY})
+    if(NOT "${SB_CRYPTO_ONLY}" STREQUAL "")
+        list(APPEND _cmd --crypto-only "${SB_CRYPTO_ONLY}")
     endif()
     if(SB_DOCUMENT_NAMESPACE)
         list(APPEND _cmd --document-namespace ${SB_DOCUMENT_NAMESPACE})

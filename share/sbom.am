@@ -249,10 +249,11 @@ sbom:
 	        dep_args="$$dep_args --dep-libz $(SBOM_DEP_LIBZ)"; \
 	    fi; \
 	fi; \
+	ns_arg=""; \
 	if test -n "$(SBOM_DOCUMENT_NAMESPACE)"; then \
 	    if $(PYTHON3) "$(SBOM_GEN)" --help 2>/dev/null \
 	        | $(GREP) -q -- '--document-namespace'; then \
-	        dep_args="$$dep_args --document-namespace '$(SBOM_DOCUMENT_NAMESPACE)'"; \
+	        ns_arg=--document-namespace; \
 	    fi; \
 	fi; \
 	$(PYTHON3) "$(SBOM_GEN)" \
@@ -263,6 +264,7 @@ sbom:
 	    --options-h "$$opts_h" \
 	    --lib "$$sbom_art" \
 	    $$dep_args \
+	    $${ns_arg:+$$ns_arg '$(SBOM_DOCUMENT_NAMESPACE)'} \
 	    $(if $(SBOM_LICENSE_OVERRIDE),--license-override '$(SBOM_LICENSE_OVERRIDE)') \
 	    $(if $(SBOM_LICENSE_TEXT),--license-text '$(SBOM_LICENSE_TEXT)') \
 	    --cdx-out $(abs_builddir)/$(SBOM_CDX) \
