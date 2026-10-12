@@ -7,7 +7,8 @@ Two layers:
     version parser, and the structural validator.
   * Integration tests run when gen-sbom is found (vendored, via --gen-sbom,
     GEN_SBOM, or WOLFSSL_DIR). They cover a full generate for the source-embedded and the
-    library paths, the path-scrub end to end, and byte-reproducibility.
+    library paths, the path-scrub end to end, byte-reproducibility, and
+    feature-detected forwarding of dependency and namespace flags.
 
 Usage:
   tests/test_sbom.py [--gen-sbom PATH]
@@ -224,6 +225,25 @@ def unit_tests():
                              stderr=subprocess.DEVNULL)
         check(rc != 0, "validator still requires a CPE on wolfssl")
 
+    print("[unit] user-settings contract")
+    driver_py = os.path.join(SHARE, "sbom-driver.py")
+    with tempfile.TemporaryDirectory() as d:
+        lib = os.path.join(d, "lib.a")
+        with open(lib, "wb") as f:
+            f.write(b"x")
+        settings = os.path.join(d, "settings.h")
+        with open(settings, "w") as f:
+            f.write("/* settings */\n")
+        base = [sys.executable, driver_py, "--name", "selftest",
+                "--version", "1.0.0", "--lib", lib, "--user-settings", settings]
+        r = subprocess.run(base, capture_output=True, text=True)
+        check(r.returncode != 0 and "--user-settings-include" in r.stderr,
+              "user-settings requires an include directory")
+        r = subprocess.run(base + ["--user-settings-include", d],
+                           capture_output=True, text=True)
+        check(r.returncode != 0 and "WOLFSSL_USER_SETTINGS" in r.stderr,
+              "user-settings requires WOLFSSL_USER_SETTINGS")
+
 
 def find_gen_sbom(explicit):
     if explicit and os.path.isfile(explicit):
@@ -242,11 +262,30 @@ def find_gen_sbom(explicit):
     return None
 
 
-def run_driver(workdir, gen_sbom, extra):
+def run_driver(workdir, gen_sbom, extra, env=None):
     cmd = [DRIVER, "--name", "selftest", "--version", "1.0.0",
            "--license-file", os.path.join(workdir, "LICENSE"),
            "--gen-sbom", gen_sbom, "--root", workdir] + extra
-    return subprocess.run(cmd, cwd=workdir, capture_output=True, text=True)
+    return subprocess.run(cmd, cwd=workdir, capture_output=True, text=True,
+                          env=env)
+
+
+def write_stub_generator(path):
+    """A generator whose --help omits the feature-detected flags.
+
+    The driver must skip --document-namespace, --dep-libz, and --dep-version
+    when the generator does not advertise them, and must still run.
+    """
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(
+            "import os, sys\n"
+            "if '--help' in sys.argv:\n"
+            "    sys.stdout.write('usage: stub\\n')\n"
+            "    sys.exit(0)\n"
+            "with open(os.environ['STUB_ARGV'], 'w', encoding='utf-8') as out:\n"
+            "    out.write('\\n'.join(sys.argv))\n"
+            "sys.exit(0)\n"
+        )
 
 
 def integration_tests(gen_sbom):
@@ -303,6 +342,91 @@ def integration_tests(gen_sbom):
             p = os.path.join(d, f"r{i}.cdx.json")
             outs.append(open(p).read() if os.path.isfile(p) else f"<missing {i}>")
         check(outs[0] == outs[1], "byte-reproducible CycloneDX")
+
+        # Feature-detected forwarding. The real generator advertises the
+        # flags, so the dependency version and the namespace must land in
+        # the document. A stub whose --help omits them must still succeed,
+        # and those flags must not appear on its command line.
+        ns = "https://example.com/sbom/selftest-1.0.0"
+        r = run_driver(d, gen_sbom, [
+            "--lib", lib, "--cflags=-DHAVE_AES",
+            "--dep-libz", "yes",
+            "--dep-version", "libz=1.2.13",
+            "--document-namespace", ns,
+            "--cdx-out", "fwd.cdx.json", "--spdx-out", "fwd.spdx.json"])
+        check(r.returncode == 0,
+              "advertised dependency and namespace flags generate\n"
+              + r.stderr)
+        fwd = os.path.join(d, "fwd.spdx.json")
+        if r.returncode == 0 and os.path.isfile(fwd):
+            spdx = json.load(open(fwd, encoding="utf-8"))
+            check(spdx.get("documentNamespace") == ns,
+                  "document namespace is forwarded")
+            blob = json.dumps(spdx)
+            check("zlib" in blob and "1.2.13" in blob,
+                  "libz name and version are forwarded")
+
+        stub = os.path.join(d, "stub-gen-sbom.py")
+        write_stub_generator(stub)
+        argv_path = os.path.join(d, "stub-argv.txt")
+        env = dict(os.environ, STUB_ARGV=argv_path)
+        r = run_driver(d, stub, [
+            "--lib", lib, "--cflags=-DHAVE_AES",
+            "--dep-libz", "yes",
+            "--dep-version", "libz=1.2.13",
+            "--document-namespace", ns,
+            "--cdx-out", "stub.cdx.json", "--spdx-out", "stub.spdx.json"],
+            env=env)
+        check(r.returncode == 0,
+              "unsupported generator flags are skipped\n" + r.stderr)
+        argv = []
+        if os.path.isfile(argv_path):
+            argv = open(argv_path, encoding="utf-8").read().splitlines()
+        check("--dep-libz" not in argv, "omitted --dep-libz is not forwarded")
+        check("--dep-version" not in argv,
+              "omitted --dep-version is not forwarded")
+        check("--document-namespace" not in argv,
+              "omitted --document-namespace is not forwarded")
+        check("--lib" in argv, "the library checksum source is still forwarded")
+
+        # --lib names the as-built artifact. gen-sbom accepts one checksum
+        # source, so the driver must not forward --lib with --no-artifact-hash.
+        if os.path.isfile(argv_path):
+            os.remove(argv_path)
+        r = run_driver(d, stub, [
+            "--lib", lib, "--no-artifact-hash", "--cflags=-DHAVE_AES",
+            "--cdx-out", "nah.cdx.json", "--spdx-out", "nah.spdx.json"],
+            env=env)
+        check(r.returncode == 0, "no-artifact-hash reaches the generator\n"
+              + r.stderr)
+        argv = []
+        if os.path.isfile(argv_path):
+            argv = open(argv_path, encoding="utf-8").read().splitlines()
+        check("--no-artifact-hash" in argv, "--no-artifact-hash is forwarded")
+        check("--lib" not in argv,
+              "--lib is not a second checksum source")
+
+        settings = os.path.join(d, "settings.h")
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write("/* settings */\n")
+        if os.path.isfile(argv_path):
+            os.remove(argv_path)
+        r = run_driver(d, stub, [
+            "--lib", lib,
+            "--user-settings", settings,
+            "--user-settings-include", d,
+            "--user-settings-define", "WOLFSSL_USER_SETTINGS",
+            "--cdx-out", "us.cdx.json", "--spdx-out", "us.spdx.json"],
+            env=env)
+        check(r.returncode == 0, "settings.h route is forwarded\n" + r.stderr)
+        argv = []
+        if os.path.isfile(argv_path):
+            argv = open(argv_path, encoding="utf-8").read().splitlines()
+        check(settings in argv, "settings.h path is forwarded")
+        check("--user-settings-include" in argv,
+              "user-settings include directory is forwarded")
+        check("WOLFSSL_USER_SETTINGS" in argv,
+              "WOLFSSL_USER_SETTINGS is forwarded")
 
 
 def main():
