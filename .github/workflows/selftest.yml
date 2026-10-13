@@ -39,7 +39,9 @@ jobs:
             central/gen-advisory \
             central/test_gen_advisory.py \
             central/advisory-completeness \
+            central/advisory-overlay-draft \
             central/test_advisory_completeness.py \
+            central/test_advisory_overlay_draft.py \
             central/csaf-publish \
             central/csaf-verify \
             central/csaf-keygen \
@@ -60,7 +62,7 @@ jobs:
         run: python -m unittest central/test_gen_advisory.py
 
       - name: Run advisory completeness and publish unit tests
-        run: python -m unittest central/test_advisory_completeness.py central/test_csaf_publish.py
+        run: python -m unittest central/test_advisory_completeness.py central/test_advisory_overlay_draft.py central/test_csaf_publish.py
 
       - name: Run SBOM identity tests
         run: python -m unittest tests/test_sbom_identity.py
