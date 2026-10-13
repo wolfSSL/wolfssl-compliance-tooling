@@ -109,7 +109,7 @@ def main():
 
     srcs_out, tmp = args.srcs_out, None
     if not srcs_out:
-        fd, srcs_out = tempfile.mkstemp(prefix='wolfglass-zephyr-srcs-', suffix='.txt')
+        fd, srcs_out = tempfile.mkstemp(prefix='wolfssl-compliance-tooling-zephyr-srcs-', suffix='.txt')
         os.close(fd)
         tmp = srcs_out
     with open(srcs_out, 'w') as f:

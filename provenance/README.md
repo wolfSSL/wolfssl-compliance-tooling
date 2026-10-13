@@ -4,7 +4,7 @@ This is the optional build-provenance capability (bomsh / OmniBOR).
 
 Planned contents (see `docs/PLAN.md`):
 
-- `wolfglass-bomsh` — a build-system-agnostic wrapper that traces a build.
+- `wolfssl-compliance-tooling-bomsh` — a build-system-agnostic wrapper that traces a build.
 - `bomsh_verify.py` — the provenance verifier.
 
 Rules:

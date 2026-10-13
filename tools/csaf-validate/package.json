@@ -1,5 +1,5 @@
 {
-  "name": "wolfglass-csaf-validate",
+  "name": "wolfssl-compliance-tooling-csaf-validate",
   "private": true,
   "type": "module",
   "description": "Pinned Secvisogram CSAF 2.0 gate used by .github/workflows/advisory.yml",
