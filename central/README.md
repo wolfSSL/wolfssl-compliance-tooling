@@ -2,7 +2,10 @@
 
 These tools run for wolfSSL only. Do not vendor them into a product.
 
-- `gen-advisory` — the CSAF 2.0 and CycloneDX VEX generator.
+- `gen-advisory` — the CSAF 2.0 and CycloneDX VEX generator. A bundle id
+  `wolfssl-<version>` must match `advisories/releases/<version>/cves`
+  exactly. The command writes nothing when a CVE is extra or missing.
+  Per-CVE documents still use every record in `--records-dir`.
 - `advisory-completeness` — the release gate. Each product release is one
   directory under `advisories/releases/<version>/` (`cves`, `ChangeLog.md`,
   optional `prior-release.cves`, `mentions.cves`, `supplemental.cves`).

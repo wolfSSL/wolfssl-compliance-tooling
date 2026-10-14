@@ -31,6 +31,7 @@ deterministic UUIDs, fail-rather-than-emit-garbage on malformed input.
 """
 
 import argparse
+import importlib.util
 import json
 import os
 import pathlib
@@ -38,6 +39,7 @@ import re
 import sys
 import urllib.request
 import uuid
+from importlib.machinery import SourceFileLoader
 from datetime import datetime, timezone
 
 
@@ -52,6 +54,10 @@ GEN_TOOL_VERSION = '0.3'
 # used to build a path.
 _CVE_ID_RE = re.compile(r'^CVE-[0-9]{4}-[0-9]{4,}$')
 _ADVISORY_ID_RE = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]*$')
+# wolfssl-5.9.4 is a release bundle. The id selects the pin file; it is not
+# only a label. Other ids (a CVE id, wolfSSL-SA-5.9.1) are not release bundles.
+_RELEASE_BUNDLE_RE = re.compile(
+    r'^wolfssl-([0-9]+\.[0-9]+(?:\.[0-9]+)?)$')
 
 
 def _validate_path_id(value, kind, pattern):
@@ -62,6 +68,58 @@ def _validate_path_id(value, kind, pattern):
         sys.exit(f"ERROR: refusing unsafe {kind} {value!r}: must match "
                  f"{pattern.pattern} (no path separators)")
     return value
+
+
+def release_version_from_id(advisory_id):
+    """Return the version for a wolfssl-<version> bundle id, else None."""
+    match = _RELEASE_BUNDLE_RE.fullmatch(advisory_id or '')
+    return match.group(1) if match else None
+
+
+def _load_completeness():
+    path = pathlib.Path(__file__).resolve().parent / 'advisory-completeness'
+    loader = SourceFileLoader('advisory_completeness', str(path))
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def enforce_release_pin(advisory_id, cve_ids, releases_root):
+    """Stop when a wolfssl-<version> bundle is not exactly that release pin.
+
+    Per-CVE documents are unchanged. Only the file named wolfssl-<version>
+    is limited to advisories/releases/<version>/cves.
+    """
+    version = release_version_from_id(advisory_id)
+    if version is None:
+        return
+    pin_path = pathlib.Path(releases_root) / version / 'cves'
+    if not pin_path.is_file():
+        sys.exit(f'ERROR: {advisory_id} has no pin file {pin_path}.')
+    pin = _load_completeness().load_cve_list(pin_path)
+    got = list(cve_ids)
+    extra = [cve for cve in got if cve not in set(pin)]
+    missing = [cve for cve in pin if cve not in set(got)]
+    if not extra and not missing and len(got) == len(pin):
+        return
+    lines = [f'ERROR: {advisory_id} CVE set does not match {pin_path}.']
+    if extra:
+        lines.append('  extra: ' + ', '.join(extra))
+    if missing:
+        lines.append('  missing: ' + ', '.join(missing))
+    if len(got) != len(set(got)):
+        lines.append('  duplicate CVE ids in the input records.')
+    sys.exit('\n'.join(lines))
+
+
+def bundle_advisory_id(args, n_advs):
+    """The id of the single bundled document, or None for per-CVE output."""
+    if args.csaf_out or args.cdx_vex_out:
+        return args.advisory_id
+    if args.advisory_id and n_advs > 1:
+        return args.advisory_id
+    return None
 
 _SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
 _REPO_ROOT = _SCRIPTS_DIR.parent
@@ -970,7 +1028,13 @@ def main():
                         'exists.')
     p.add_argument('--advisory-id',
                    help='Tracking id when bundling several records into ONE '
-                        'document. Defaults to the CVE id for a single record.')
+                        'document. Defaults to the CVE id for a single record. '
+                        'wolfssl-<version> must match '
+                        'advisories/releases/<version>/cves exactly.')
+    p.add_argument('--releases-root',
+                   default=str(_REPO_ROOT / 'advisories' / 'releases'),
+                   help='Directory of <version>/cves pin files. Used when '
+                        '--advisory-id is wolfssl-<version>.')
     p.add_argument('--out-dir', default=str(DEFAULT_OUT_DIR),
                    help='Output directory for the per-CVE documents written in '
                         'batch mode (default: ' f'{DEFAULT_OUT_DIR}).')
@@ -1011,6 +1075,11 @@ def main():
             if adv['cve'] not in ov_map:
                 print(f"WARNING: no VEX overlay entry for {adv['cve']}; "
                       f"defaulting to state=exploitable", file=sys.stderr)
+
+    bundle_id = bundle_advisory_id(args, len(advs))
+    if bundle_id:
+        enforce_release_pin(
+            bundle_id, [adv['cve'] for adv in advs], args.releases_root)
 
     _, timestamp = build_timestamp()
 

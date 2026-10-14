@@ -695,6 +695,51 @@ class TestCliBehaviour(unittest.TestCase):
             self.assertEqual(doc['document']['tracking']['id'],
                              'CVE-2026-5501')
 
+    def test_release_bundle_rejects_records_outside_the_pin(self):
+        with tempfile.TemporaryDirectory() as d:
+            csaf = os.path.join(d, 'wolfssl-5.9.4.csaf.json')
+            r = self._run([
+                '--cve-record', str(TESTDATA / 'CVE-2026-5501.json'),
+                '--cve-record', str(TESTDATA / 'CVE-2026-5778.json'),
+                '--vex-overlay', str(EXAMPLE_OVERLAY),
+                '--advisory-id', 'wolfssl-5.9.4',
+                '--csaf-out', csaf])
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('does not match', r.stderr)
+            self.assertIn('extra:', r.stderr)
+            self.assertIn('missing:', r.stderr)
+            self.assertFalse(os.path.exists(csaf))
+
+    def test_release_bundle_matches_pin(self):
+        with tempfile.TemporaryDirectory() as d:
+            pin_dir = os.path.join(d, 'releases', '9.9.9')
+            os.makedirs(pin_dir)
+            with open(os.path.join(pin_dir, 'cves'), 'w') as fh:
+                fh.write('# pin\nCVE-2026-5501\nCVE-2026-5778\n')
+            csaf = os.path.join(d, 'out.csaf.json')
+            r = self._run([
+                '--cve-record', str(TESTDATA / 'CVE-2026-5501.json'),
+                '--cve-record', str(TESTDATA / 'CVE-2026-5778.json'),
+                '--vex-overlay', str(EXAMPLE_OVERLAY),
+                '--advisory-id', 'wolfssl-9.9.9',
+                '--releases-root', os.path.join(d, 'releases'),
+                '--csaf-out', csaf])
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue(os.path.exists(csaf))
+
+    def test_release_bundle_missing_pin_fails(self):
+        with tempfile.TemporaryDirectory() as d:
+            csaf = os.path.join(d, 'out.csaf.json')
+            r = self._run([
+                '--cve-record', str(TESTDATA / 'CVE-2026-5501.json'),
+                '--vex-overlay', str(EXAMPLE_OVERLAY),
+                '--advisory-id', 'wolfssl-9.9.9',
+                '--releases-root', os.path.join(d, 'empty-releases'),
+                '--csaf-out', csaf])
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn('no pin file', r.stderr)
+            self.assertFalse(os.path.exists(csaf))
+
     def test_bundling_without_advisory_id_fails(self):
         with tempfile.TemporaryDirectory() as d:
             csaf = os.path.join(d, 'x.csaf.json')
