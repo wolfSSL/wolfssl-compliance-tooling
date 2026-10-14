@@ -121,6 +121,35 @@ def bundle_advisory_id(args, n_advs):
         return args.advisory_id
     return None
 
+
+def release_pin_record_paths(advisory_id, records_dir, releases_root):
+    """JSON paths for a wolfssl-<version> bundle, in pin order.
+
+    The caller keeps every record in advisories/records. This reads the
+    pin file and returns only those records, so the bundle command does
+    not need a second copy of the JSON files.
+    """
+    version = release_version_from_id(advisory_id)
+    pin_path = pathlib.Path(releases_root) / version / 'cves'
+    if not pin_path.is_file():
+        sys.exit(f'ERROR: {advisory_id} has no pin file {pin_path}.')
+    pin = _load_completeness().load_cve_list(pin_path)
+    if not pin:
+        sys.exit(f'ERROR: {advisory_id} pin file {pin_path} lists no CVEs.')
+    records_dir = pathlib.Path(records_dir)
+    paths = []
+    missing = []
+    for cve in pin:
+        path = records_dir / f'{cve}.json'
+        if path.is_file():
+            paths.append(path)
+        else:
+            missing.append(str(path))
+    if missing:
+        sys.exit(f'ERROR: {advisory_id} pin {pin_path} is missing records: '
+                 + ', '.join(missing))
+    return paths
+
 _SCRIPTS_DIR = pathlib.Path(__file__).resolve().parent
 _REPO_ROOT = _SCRIPTS_DIR.parent
 
@@ -1019,7 +1048,10 @@ def main():
     p.add_argument('--records-dir', default=str(DEFAULT_RECORDS_DIR),
                    help='Directory of CVE JSON 5.x records scanned when no '
                         f'--cve-record/--cve-id is given (default: '
-                        f'{DEFAULT_RECORDS_DIR}).')
+                        f'{DEFAULT_RECORDS_DIR}). A wolfssl-<version> bundle '
+                        'loads only the ids in '
+                        'advisories/releases/<version>/cves from this '
+                        'directory.')
     p.add_argument('--vex-overlay', default=None,
                    help='JSON file mapping CVE id -> VEX overlay (state, '
                         'justification, detail, response, fixed_versions, '
@@ -1029,8 +1061,9 @@ def main():
     p.add_argument('--advisory-id',
                    help='Tracking id when bundling several records into ONE '
                         'document. Defaults to the CVE id for a single record. '
-                        'wolfssl-<version> must match '
-                        'advisories/releases/<version>/cves exactly.')
+                        'wolfssl-<version> loads exactly the ids in '
+                        'advisories/releases/<version>/cves from '
+                        '--records-dir.')
     p.add_argument('--releases-root',
                    default=str(_REPO_ROOT / 'advisories' / 'releases'),
                    help='Directory of <version>/cves pin files. Used when '
@@ -1058,10 +1091,14 @@ def main():
         records += [load_cve_record(cve_id=cid) for cid in args.cve_id]
     else:
         rec_dir = pathlib.Path(args.records_dir)
-        paths = sorted(rec_dir.glob('*.json'))
-        if not paths:
-            sys.exit(f"ERROR: no CVE records found in {rec_dir}. Add records "
-                     f"there, or pass --cve-record / --cve-id.")
+        if release_version_from_id(args.advisory_id):
+            paths = release_pin_record_paths(
+                args.advisory_id, rec_dir, args.releases_root)
+        else:
+            paths = sorted(rec_dir.glob('*.json'))
+            if not paths:
+                sys.exit(f"ERROR: no CVE records found in {rec_dir}. Add records "
+                         f"there, or pass --cve-record / --cve-id.")
         records = [load_cve_record(path=str(pth)) for pth in paths]
     advs = [parse_record(r) for r in records]
 
