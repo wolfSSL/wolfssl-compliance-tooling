@@ -1,4 +1,4 @@
-# wolfGlass — Product × Front-End SBOM Matrix
+# wolfssl-compliance-tooling — Product × Front-End SBOM Matrix
 
 This document maps each wolfSSL product to the build systems it ships, the SBOM
 composition method, and the constraints. It is the companion to `PLAN.md`. It
@@ -6,7 +6,7 @@ follows ASD-STE100 Simplified Technical English.
 
 The roster and the tiers come from the wolfSSL Family Supported-Platforms matrix.
 The front-end family, the composition flavor, and the constraints come from the
-wolfGlass two-axis model.
+wolfssl-compliance-tooling two-axis model.
 
 Facts marked with a check are verified in the local workspace. Facts marked with
 a cross are not in this checkout; verify them in the source checkout before you
@@ -46,7 +46,7 @@ Status marks:
 | Mark | Meaning |
 |---|---|
 | ✅ | Ships today. The build files exist in-tree now. |
-| ▲ | Needs the promoted wolfGlass front end. |
+| ▲ | Needs the promoted wolfssl-compliance-tooling front end. |
 | ○ | Documented port. Not a first-class in-tree build file. |
 | ▢ | Restricted vendor stub. The build files are not public. |
 | ✖ | Not applicable. |
@@ -201,9 +201,9 @@ Obey these caveats when you attest support.
 
 ## 8. Open decisions
 
-1. Engine home. wolfGlass is canonical. wolfSSL is one more `wolfglass-sync`
+1. Engine home. wolfssl-compliance-tooling is canonical. wolfSSL is one more `wolfssl-compliance-tooling-sync`
    target. wolfSSL keeps its own vendored copy. No product gains a build-time
-   dependency on wolfGlass. This keeps PLAN.md §10 ("no submodule, no network
+   dependency on wolfssl-compliance-tooling. This keeps PLAN.md §10 ("no submodule, no network
    pull"). It needs a named owner's sign-off.
 2. wolfGuard tier. The tier is unset. Assign a tier and an owner.
 3. `share/` layout. The shared CMake fragment must be a function, not a

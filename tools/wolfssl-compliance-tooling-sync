@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
-"""wolfglass-sync - vendor the wolfGlass share/ set into a product repository.
+"""wolfssl-compliance-tooling-sync - vendor the wolfssl-compliance-tooling share/ set into a product repository.
 
 This is the standard distribution method for products that wolfSSL owns. It
 copies the controlled share/ files into a product at a fixed path (tools/sbom/
-by default) and writes the toolkit pin files (VERSION and .wolfglass-rev) next
+by default) and writes the toolkit pin files (VERSION and .wolfssl-compliance-tooling-rev) next
 to them. It uses no network and no git submodule, so it works on air-gapped
 hosts and does not break source tarballs (see PLAN.md sections 10 and 16).
 
 Usage:
-  wolfglass-sync --dest /path/to/product [options]
+  wolfssl-compliance-tooling-sync --dest /path/to/product [options]
 
 Options:
   --dest PATH     Product repository root (required).
   --subdir NAME   Vendored path inside the product. Default: tools/sbom.
-  --src PATH      wolfGlass repository root. Default: derived from this script.
+  --src PATH      wolfssl-compliance-tooling repository root. Default: derived from this script.
   --check         Do not copy. Report drift and exit non-zero if any file
                   differs. Use this in a product's CI drift check.
 """
@@ -98,21 +98,21 @@ def main():
                     version_file, dst_v, shallow=False):
                 drift.append("VERSION")
         if source_rev:
-            dst_r = os.path.join(dest_root, ".wolfglass-rev")
+            dst_r = os.path.join(dest_root, ".wolfssl-compliance-tooling-rev")
             if not os.path.isfile(dst_r):
-                drift.append(".wolfglass-rev")
+                drift.append(".wolfssl-compliance-tooling-rev")
             else:
                 with open(dst_r, encoding="utf-8", errors="replace") as f:
                     if f.read().strip() != source_rev:
-                        drift.append(".wolfglass-rev")
+                        drift.append(".wolfssl-compliance-tooling-rev")
         if drift:
-            print("DRIFT: vendored wolfGlass files differ from share/:",
+            print("DRIFT: vendored wolfssl-compliance-tooling files differ from share/:",
                   file=sys.stderr)
             for rel in drift:
                 print(f"  {rel}", file=sys.stderr)
-            print("Re-run wolfglass-sync to update.", file=sys.stderr)
+            print("Re-run wolfssl-compliance-tooling-sync to update.", file=sys.stderr)
             sys.exit(1)
-        print("OK: vendored wolfGlass files match share/.")
+        print("OK: vendored wolfssl-compliance-tooling files match share/.")
         return
 
     # A symlink already present under dest_root (a file, or a directory on
@@ -122,7 +122,7 @@ def main():
     if os.path.isfile(version_file):
         targets.append("VERSION")
     if source_rev:
-        targets.append(".wolfglass-rev")
+        targets.append(".wolfssl-compliance-tooling-rev")
     for rel in targets:
         if not is_inside(dest_root_abs,
                          os.path.realpath(os.path.join(dest_root, rel))):
@@ -138,13 +138,13 @@ def main():
     if os.path.isfile(version_file):
         shutil.copy2(version_file, os.path.join(dest_root, "VERSION"))
     if source_rev:
-        with open(os.path.join(dest_root, ".wolfglass-rev"), "w",
+        with open(os.path.join(dest_root, ".wolfssl-compliance-tooling-rev"), "w",
                   encoding="utf-8") as f:
             f.write(source_rev + "\n")
     print(f"Synced {count} file(s) into {dest_root}")
     if source_rev:
-        print(f"Pinned wolfGlass revision: {source_rev}")
-    print("Commit the vendored files, VERSION, and .wolfglass-rev.")
+        print(f"Pinned wolfssl-compliance-tooling revision: {source_rev}")
+    print("Commit the vendored files, VERSION, and .wolfssl-compliance-tooling-rev.")
 
 
 if __name__ == "__main__":

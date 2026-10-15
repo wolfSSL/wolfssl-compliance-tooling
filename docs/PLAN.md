@@ -1,4 +1,4 @@
-# wolfGlass Program Plan
+# wolfssl-compliance-tooling Program Plan
 
 This plan follows ASD-STE100 Simplified Technical English: short sentences,
 active voice, one idea per sentence, imperative for steps, vertical lists, and
@@ -6,7 +6,7 @@ one term for one thing.
 
 ## 1. Scope
 
-This plan describes the wolfGlass project. wolfGlass is one toolkit that makes
+This plan describes the wolfssl-compliance-tooling project. wolfssl-compliance-tooling is one toolkit that makes
 software transparency artifacts for all wolfSSL products. The artifacts are the
 SBOM, the security advisory, the VEX, and the build provenance.
 
@@ -16,7 +16,7 @@ Use these terms with one meaning only.
 
 | Term | Meaning |
 |---|---|
-| toolkit | The wolfGlass repository and its tools. |
+| toolkit | The wolfssl-compliance-tooling repository and its tools. |
 | the generator | The `gen-sbom` script that makes an SBOM. |
 | the fragment | A shared build recipe (`sbom.am`, `sbom.cmake`, or `sbom.mk`). |
 | product repository | A repository that ships a wolfSSL product. |
@@ -46,7 +46,7 @@ causes three problems:
 
 ## 4. Solution
 
-Create wolfGlass as one standalone repository. Make wolfGlass the single source
+Create wolfssl-compliance-tooling as one standalone repository. Make wolfssl-compliance-tooling the single source
 of truth for the SBOM tools. Keep the generator unchanged, because it is already
 product-agnostic. Add two design elements:
 
@@ -70,7 +70,7 @@ each product.
 - The tools run on air-gapped Linux, embedded hosts, and Windows.
 - The out-of-tree mode keeps FIPS-certified bundles bit-identical.
 - A shared GPLv3 license matches the current wolfSSL repositories and removes a
-  license mismatch when code moves between wolfGlass, wolfSSL, and wolfBoot.
+  license mismatch when code moves between wolfssl-compliance-tooling, wolfSSL, and wolfBoot.
 
 ## 6. Product tiers
 
@@ -158,10 +158,10 @@ links `linuxkm`; its tier is still unset. See `docs/TIERS.md`.
 
 ## 8. Repository design
 
-Use this structure for the wolfGlass repository.
+Use this structure for the wolfssl-compliance-tooling repository.
 
 ```
-wolfglass/
+wolfssl-compliance-tooling/
 ├── README.md
 ├── LICENSE                 (GPLv3; aligned with wolfSSL repos)
 ├── VERSION                 (toolkit release; products pin to this)
@@ -175,7 +175,7 @@ wolfglass/
 │   │   └── zephyr_sbom.py  (Zephyr module extractor)
 │   ├── build/
 │   │   ├── sbom.mk         (plain-Make fragment)
-│   │   └── sbom.cmake      (CMake: wolfglass_add_sbom())
+│   │   └── sbom.cmake      (CMake: wolfssl_compliance_tooling_add_sbom())
 │   ├── gen-sbom            (populated after the engine-home sign-off) [PENDING]
 │   └── sbom.am             (autotools fragment; lifted from wolfSSL) [PENDING]
 ├── central/                (never vendored; runs for wolfSSL only)  [PENDING]
@@ -183,14 +183,14 @@ wolfglass/
 │   ├── advisory-vex-overlay.schema.json
 │   └── advisory-vex-overlay.example.json
 ├── provenance/             (opt-in; Linux CI; all products on demand)[PENDING]
-│   ├── wolfglass-bomsh
+│   ├── wolfssl-compliance-tooling-bomsh
 │   └── bomsh_verify.py
 ├── schemas/                (CDX 1.6 and SPDX 2.3, for offline validation)[PENDING]
 ├── tools/
-│   ├── wolfglass-sync      (copies share/ into a product; supports --src) [DONE]
-│   └── wolfglass           (out-of-tree driver)                    [PENDING]
+│   ├── wolfssl-compliance-tooling-sync      (copies share/ into a product; supports --src) [DONE]
+│   └── wolfssl-compliance-tooling           (out-of-tree driver)                    [PENDING]
 ├── .github/workflows/
-│   ├── selftest.yml        (wolfGlass CI: unit + integration)      [DONE]
+│   ├── selftest.yml        (wolfssl-compliance-tooling CI: unit + integration)      [DONE]
 │   └── sbom-reusable.yml   (reusable workflow for products)        [DONE]
 ├── tests/
 │   └── test_sbom.py        (unit + integration self-test)          [DONE]
@@ -204,23 +204,19 @@ path configuration.
 
 ## 9. Name
 
-Use the name wolfGlass. The word "glass" means transparency, which is the
-purpose of an SBOM. The name matches the wolfSSL family style. The name has few
-search-engine conflicts. Do not use wolfLiquidGlass, because it conflicts with
-the Apple design language. Do not use wolfCrystal, because it conflicts with the
-Crystal programming language.
+Use the name wolfssl-compliance-tooling.
 
 ## 10. Distribution model
 
 Use the copy-sync method as the standard method for products that wolfSSL owns.
 
-- Run `wolfglass-sync` to copy the needed files.
-- Write the pin next to the files (`VERSION` and `.wolfglass-rev`).
+- Run `wolfssl-compliance-tooling-sync` to copy the needed files.
+- Write the pin next to the files (`VERSION` and `.wolfssl-compliance-tooling-rev`).
 - Add `make sbom-selfcheck` to detect drift.
 
 Use the out-of-tree mode for bundles that you must not change.
 
-- Run `wolfglass --src <checkout> --out <sibling>`.
+- Run `wolfssl-compliance-tooling --src <checkout> --out <sibling>`.
 - Use this mode for FIPS bundles, external consumers, and the CRA Kit.
 
 Do not use a git submodule as the standard method. A submodule breaks source
@@ -251,7 +247,7 @@ only.
 
 Decide these two items one time:
 
-- Keep wolfGlass under GPLv3 to match wolfSSL and wolfBoot. This removes license
+- Keep wolfssl-compliance-tooling under GPLv3 to match wolfSSL and wolfBoot. This removes license
   friction when code moves between the repositories.
 - Choose whether to rename the producer identity. A rename changes every SBOM one time. If you rename it, also raise the generator version in the same commit.
 
@@ -266,7 +262,7 @@ Make the CMake fragment a function, not a per-product target. Today three CMake
 copies exist and drift: wolfMQTT (inline in `CMakeLists.txt`), wolfTPM (inline in
 `CMakeLists.txt`), and wolfBoot (`cmake/sbom.cmake`). Each copy re-parses the
 version header, re-checks the wolfSSL path, and re-detects python. Provide one
-`wolfglass_add_sbom()` function in `sbom.cmake`. Each product calls it with its
+`wolfssl_compliance_tooling_add_sbom()` function in `sbom.cmake`. Each product calls it with its
 name, its version header, its targets, and its define variables. Do not bless
 wolfBoot's `cmake/sbom.cmake` as canonical, because that makes a fourth copy.
 Converge the three copies onto the one function.
@@ -299,7 +295,7 @@ customer end product.
 
 ## 14. Provenance (bomsh)
 
-Host bomsh in wolfGlass under `provenance/`. bomsh is reusable, because it traces
+Host bomsh in wolfssl-compliance-tooling under `provenance/`. bomsh is reusable, because it traces
 build syscalls. The trace works for any build system on Linux.
 
 - Depend on the external `bomtrace3` and bomsh scripts. Pin their version. Do not vendor them.
@@ -309,19 +305,19 @@ build syscalls. The trace works for any build system on Linux.
 
 ## 15. CI strategy
 
-Keep the CI logic central in wolfGlass as reusable workflows. Let each product
+Keep the CI logic central in wolfssl-compliance-tooling as reusable workflows. Let each product
 repository call the workflows. This removes the current duplicate `sbom.yml`
 files.
 
 | Job | Runs in | Trigger |
 |---|---|---|
-| Tool unit tests and reproducibility | wolfGlass | each pull request to wolfGlass |
-| Integration canary (one product per tier) | wolfGlass | each pull request to wolfGlass and nightly |
+| Tool unit tests and reproducibility | wolfssl-compliance-tooling | each pull request to wolfssl-compliance-tooling |
+| Integration canary (one product per tier) | wolfssl-compliance-tooling | each pull request to wolfssl-compliance-tooling and nightly |
 | Drift check (`sbom-selfcheck`) | each product repository | each pull request |
 | SBOM build and validate | each product repository | each pull request, filtered by path |
 | SBOM release artifact | each product repository | on a tag or release |
-| bomsh provenance | product or wolfGlass | on release, nightly, or on demand |
-| Version-bump propagation | automation | on a wolfGlass release |
+| bomsh provenance | product or wolfssl-compliance-tooling | on release, nightly, or on demand |
+| Version-bump propagation | automation | on a wolfssl-compliance-tooling release |
 
 Generate the SBOM in the product repository, because the build lives there.
 Validate on each pull request. Attach the real SBOM at release time. Do not
@@ -329,21 +325,21 @@ commit generated SBOMs on each pull request, because they cause churn.
 
 ## 16. Update and version management
 
-- Pin each product to one wolfGlass `VERSION`.
-- Release wolfGlass with a version number and a changelog.
+- Pin each product to one wolfssl-compliance-tooling `VERSION`.
+- Release wolfssl-compliance-tooling with a version number and a changelog.
 - Open a bot pull request on each release. The pull request re-syncs `share/` and raises the pin.
 - Let each product CI validate the bump.
 - Never auto-update at build time.
 
 Protect against a bad change with two controls:
 
-- Run the canary in wolfGlass before a release.
+- Run the canary in wolfssl-compliance-tooling before a release.
 - Move a product only after its own CI passes.
 
 ## 17. Tests
 
-- Keep the generator tests and the advisory tests in wolfGlass.
-- Run the unit tests on each wolfGlass pull request.
+- Keep the generator tests and the advisory tests in wolfssl-compliance-tooling.
+- Run the unit tests on each wolfssl-compliance-tooling pull request.
 - Run the reproducibility test to confirm byte-equal output.
 - Validate sample output against the pinned schemas.
 - Never vendor the tests into a product.
@@ -376,26 +372,26 @@ layer.
 2. Choose the vendored path name. Use one name in every product.
 3. Confirm the generator home and get a named owner's sign-off. See §21.
 
-**Phase 1 — Scaffold wolfGlass `share/`.**
+**Phase 1 — Scaffold wolfssl-compliance-tooling `share/`.**
 
 1. Define the manifest contract (the `SBOM_*` variables for Make and the
-   `wolfglass_add_sbom()` arguments for CMake).
+   `wolfssl_compliance_tooling_add_sbom()` arguments for CMake).
 2. Lift the driver and the extractors into `share/`. De-brand the wolfBoot
    defaults (name, version header, generator path, name prefix).
 3. Promote the path scrub to the shared driver.
 
 **Phase 2 — wolfBoot (the reference migration).**
 
-1. Refactor the CMake target into the shared `wolfglass_add_sbom()` function.
+1. Refactor the CMake target into the shared `wolfssl_compliance_tooling_add_sbom()` function.
 2. Keep the product knowledge in wolfBoot: the route-through script, the Zephyr
    extractor, and the HAL selector.
 3. Re-vendor `share/` back into wolfBoot. Prove the round trip.
 
 **Phase 3 — wolfSSL (the canonical source).**
 
-1. Make wolfGlass canonical for the generator and `sbom.am`.
-2. Make wolfSSL a `wolfglass-sync` target that keeps its own vendored copy.
-3. Add no build-time dependency on wolfGlass.
+1. Make wolfssl-compliance-tooling canonical for the generator and `sbom.am`.
+2. Make wolfSSL a `wolfssl-compliance-tooling-sync` target that keeps its own vendored copy.
+3. Add no build-time dependency on wolfssl-compliance-tooling.
 
 **Phase 4 — Batch the easy products.**
 
@@ -406,10 +402,10 @@ layer.
 
 **Phase 5 — Add the shared tools and CI.**
 
-1. Write `wolfglass-sync` and stamp the pin into each vendored copy.
-   The pin is `VERSION` plus `.wolfglass-rev`.
-2. Write the `wolfglass` out-of-tree driver.
-3. Write `wolfglass-bomsh` from the current bomsh recipe.
+1. Write `wolfssl-compliance-tooling-sync` and stamp the pin into each vendored copy.
+   The pin is `VERSION` plus `.wolfssl-compliance-tooling-rev`.
+2. Write the `wolfssl-compliance-tooling` out-of-tree driver.
+3. Write `wolfssl-compliance-tooling-bomsh` from the current bomsh recipe.
 4. Write the reusable workflows. Add the canary matrix. Add the drift check that
    validates the call site, not only the file hashes.
 
@@ -422,7 +418,7 @@ layer.
 
 **Phase 7 — Propagate and pin.**
 
-1. Release wolfGlass v1.0.
+1. Release wolfssl-compliance-tooling v1.0.
 2. Open the bump pull requests.
 3. Confirm each product CI passes.
 
@@ -444,13 +440,13 @@ Decide these before Phase 1. They block the code work or set its shape.
   a thin shell wrapper. Decide this before the lift, because it is cheapest then.
 - Choose the vendored path name. Use one name in every product, for example
   `tools/sbom/`. The sync tool and the drift check depend on one convention.
-- Confirm the generator home. wolfGlass is canonical. wolfSSL keeps a vendored
+- Confirm the generator home. wolfssl-compliance-tooling is canonical. wolfSSL keeps a vendored
   copy and gains no build-time dependency. This touches licensing and the FIPS
   release process, so it needs a named owner's sign-off.
 
 Decide these before Phase 7. They do not block the code work.
 
 - License choice is set: GPLv3 to match wolfSSL repositories.
-- Choose the location of the CRA Kit. Keep it in the examples repository and reference wolfGlass.
+- Choose the location of the CRA Kit. Keep it in the examples repository and reference wolfssl-compliance-tooling.
 - Choose whether to rename the producer identity now or later.
 - Assign the wolfGuard tier and owner.

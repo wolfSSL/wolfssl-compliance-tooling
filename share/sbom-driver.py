@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""wolfGlass SBOM driver - the product-neutral SBOM engine.
+"""wolfssl-compliance-tooling SBOM driver - the product-neutral SBOM engine.
 
 This is the generalized form of wolfBoot's tools/scripts/wolfboot-sbom.sh. It is
 product-neutral: the name, version, root, generator, and license are all
@@ -337,7 +337,7 @@ def main():
         # Composition.
         if args.srcs_file:
             srcs = load_srcs(args.srcs_file, args.skip_missing)
-            fd, srcs_path = tempfile.mkstemp(prefix="wolfglass-srcs-", suffix=".txt")
+            fd, srcs_path = tempfile.mkstemp(prefix="wolfssl-compliance-tooling-srcs-", suffix=".txt")
             os.close(fd)
             tmp_files.append(srcs_path)
             with open(srcs_path, "w", encoding="utf-8") as f:
@@ -384,7 +384,7 @@ def main():
                          "--user-settings, or --source-only.")
             if not args.no_scrub and not args.source_only:
                 defines_text = scrub_defines(defines_text)
-            fd, defines_path = tempfile.mkstemp(prefix="wolfglass-defs-", suffix=".h")
+            fd, defines_path = tempfile.mkstemp(prefix="wolfssl-compliance-tooling-defs-", suffix=".h")
             os.close(fd)
             tmp_files.append(defines_path)
             with open(defines_path, "w", encoding="utf-8") as f:

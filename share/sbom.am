@@ -5,7 +5,7 @@
 # sets a few variables (below) and does `include tools/sbom/sbom.am` to get the
 # `sbom`, `install-sbom` and `uninstall-sbom` targets.
 #
-# This is the canonical copy in wolfGlass. Product repositories vendor it
+# This is the canonical copy in wolfssl-compliance-tooling. Product repositories vendor it
 # together with the sibling `gen-sbom`, so the SBOM path works offline with no
 # build-time dependency on a separate wolfSSL checkout.
 #
@@ -87,7 +87,7 @@ SBOM_CONFIG_H ?= $(abs_builddir)/config.h
 # document.  Only the -D/-U/-I tokens are fed to it (see the capture below), so
 # it never sees target arch flags it cannot parse.
 SBOM_HOSTCC ?= cc
-# Directory the wolfGlass tooling (gen-sbom) is vendored into. Products that
+# Directory the wolfssl-compliance-tooling tooling (gen-sbom) is vendored into. Products that
 # vendor elsewhere override this (or SBOM_GEN directly).
 SBOM_VENDOR_DIR ?= $(srcdir)/tools/sbom
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for tools/wolfglass-sync, focused on the --subdir containment guard.
+"""Tests for tools/wolfssl-compliance-tooling-sync, focused on the --subdir containment guard.
 
 --subdir is joined onto --dest and then written into, so an absolute value or
 one containing .. must be refused rather than allowed to place/overwrite files
@@ -12,7 +12,7 @@ import tempfile
 import unittest
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SYNC = os.path.join(REPO, "tools", "wolfglass-sync")
+SYNC = os.path.join(REPO, "tools", "wolfssl-compliance-tooling-sync")
 
 
 def _run(dest, subdir):

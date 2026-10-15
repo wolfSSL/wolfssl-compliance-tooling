@@ -20,6 +20,33 @@ These tools run for wolfSSL only. Do not vendor them into a product.
   an id that is not listed in `mentions.cves`. `supplemental.cves` holds ids
   fixed in this release but not a ChangeLog bullet here (late disclosure).
   `--release` must match the CVE-list path when both flags are set.
+- `advisory-overlay-draft` — write missing overlay keys from the ChangeLog.
+  It does not publish. It leaves an existing key unchanged unless you pass
+  `--replace`, which rewrites that key in the file (one copy). Read every
+  REVIEW line, then run `advisory-completeness`.
+
+  A macro is recorded when it sits next to a gate (`--enable-foo (MACRO)`,
+  `(MACRO / --enable-foo)`, `define MACRO`). "MACRO is defined" is not a
+  gate. Put one machine line on a bullet when the prose is not that shape.
+  `defines=` with no names means the default build is affected, and the
+  script does not guess. A line that starts with `VEX:` is machine input.
+  The prefix has no space before the colon. `vex:` and `VEX :` stop the
+  command and write nothing. Spaces around commas are allowed. One machine
+  line per bullet. A second `VEX:` line stops the command and writes nothing.
+  Any other shape stops the command and writes nothing.
+
+      VEX: fixed=5.9.4; defines=HAVE_ALPN
+      VEX: fixed=5.9.4; defines=HAVE_ALPN, OPENSSL_EXTRA
+      VEX: fixed=5.9.4; defines=
+
+      python3 central/advisory-overlay-draft --release 5.9.4 \
+          --changelog ../wolfssl/ChangeLog.md
+
+      python3 central/advisory-overlay-draft --release 5.9.4 \
+          --changelog ../wolfssl/ChangeLog.md --dry-run
+
+      python3 central/advisory-overlay-draft --release 5.9.4 \
+          --changelog ../wolfssl/ChangeLog.md --replace
 - `csaf-publish` — assemble the `.well-known/csaf` directory (hashes, index,
   provider-metadata, optional OpenPGP signatures via pgpy). Sign at deploy,
   not in git. Honors `SOURCE_DATE_EPOCH`.

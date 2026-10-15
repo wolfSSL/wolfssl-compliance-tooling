@@ -1,8 +1,8 @@
 # share/
 
-This is the only vendorable set. Use `tools/wolfglass-sync` to copy these files
+This is the only vendorable set. Use `tools/wolfssl-compliance-tooling-sync` to copy these files
 into a product at `tools/sbom/`, together with the pin files (`VERSION` and
-`.wolfglass-rev`). Do not copy the `share/` folder name; copy the files.
+`.wolfssl-compliance-tooling-rev`). Do not copy the `share/` folder name; copy the files.
 
 ## Contents
 
@@ -14,8 +14,8 @@ into a product at `tools/sbom/`, together with the pin files (`VERSION` and
 | `frontends/compdb_sbom.py` | Extractor for any `compile_commands.json`. |
 | `frontends/iar_sbom.py` | Extractor for an IAR Embedded Workbench `.ewp`. |
 | `frontends/zephyr_sbom.py` | Extractor for a Zephyr module `CMakeLists.txt`. |
-| `build/sbom.mk` | Shared plain-Make fragment and `wolfglass_sbom_rule` macro. |
-| `build/sbom.cmake` | Shared CMake helper: `wolfglass_add_sbom()`. |
+| `build/sbom.mk` | Shared plain-Make fragment and `wolfssl_compliance_tooling_sbom_rule` macro. |
+| `build/sbom.cmake` | Shared CMake helper: `wolfssl_compliance_tooling_add_sbom()`. |
 | `gen-sbom` | The vendored SBOM generator. |
 | `sbom.am` | Shared autotools fragment. |
 
@@ -57,13 +57,13 @@ A product does not copy logic. It describes itself:
 - Make: set `SBOM_NAME`, `SBOM_SRCS`, `SBOM_CFLAGS`, and a version
   (`SBOM_VERSION`, or `SBOM_VERSION_FILE` + `SBOM_VERSION_MACRO`), then
   `include tools/sbom/build/sbom.mk`. For a second target, instantiate
-  `$(eval $(call wolfglass_sbom_rule,<target>,<prefix>))`.
+  `$(eval $(call wolfssl_compliance_tooling_sbom_rule,<target>,<prefix>))`.
   If the product's configuration lives in a `user_settings.h`, also set
   `SBOM_SETTINGS_H` (and `SBOM_INCLUDE_DIRS` if that header needs paths the
   CFLAGS do not already carry). `SBOM_CFLAGS` alone records the literal `-D`
   set and nothing it derives, which for a gated header means the SBOM
   describes a configuration nobody built.
-- CMake: `include(tools/sbom/build/sbom.cmake)` and call `wolfglass_add_sbom()`
+- CMake: `include(tools/sbom/build/sbom.cmake)` and call `wolfssl_compliance_tooling_add_sbom()`
   with `NAME`, `VERSION_FILE`, `VERSION_MACRO`, `TARGETS`, `DEFS`, `LICENSE`.
   `SBOM_GEN` is the canonical generator override; `GEN_SBOM` remains a legacy
   alias for compatibility.
