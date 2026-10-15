@@ -1,0 +1,36 @@
+name: CSAF website
+
+# Checks the published provider directory on the first day of each month.
+# A pull request is not the website, so this job does not run on
+# pull_request. The folder URL returns 403; csaf-fetch reads index.txt
+# instead of listing the folder. The live tree is unsigned (role
+# csaf_provider). Do not pass --fingerprint until .asc files are published.
+
+on:
+  schedule:
+    - cron: '17 6 1 * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  website:
+    name: verify published CSAF
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Download the provider directory and verify hashes and VEX
+        run: |
+          python3 central/csaf-fetch \
+            --url https://www.wolfssl.com/.well-known/csaf \
+            --out "${RUNNER_TEMP}/csaf" \
+            --vex
+          python3 central/csaf-verify \
+            --root "${RUNNER_TEMP}/csaf"

@@ -158,6 +158,34 @@ class UnsignedPublishTests(unittest.TestCase):
         finally:
             sys.argv = argv
 
+    def test_verify_ignores_sibling_vex_file(self):
+        csaf_root = self._publish()
+        vex = csaf_root / 'white' / '2026' / 'cve-2026-5501.cdx.json'
+        vex.write_text('{}\n')
+        import sys
+        argv = sys.argv
+        try:
+            sys.argv = ['csaf-verify', '--root', str(csaf_root)]
+            with self.assertRaises(SystemExit) as cm:
+                ver.main()
+            self.assertEqual(cm.exception.code, 0)
+        finally:
+            sys.argv = argv
+
+    def test_verify_rejects_an_unindexed_json_file(self):
+        csaf_root = self._publish()
+        extra = csaf_root / 'white' / '2026' / 'extra.json'
+        extra.write_text('{}\n')
+        import sys
+        argv = sys.argv
+        try:
+            sys.argv = ['csaf-verify', '--root', str(csaf_root)]
+            with self.assertRaises(SystemExit) as cm:
+                ver.main()
+            self.assertEqual(cm.exception.code, 1)
+        finally:
+            sys.argv = argv
+
     def test_verify_detects_index_without_file(self):
         csaf_root = self._publish()
         index = csaf_root / 'index.txt'
