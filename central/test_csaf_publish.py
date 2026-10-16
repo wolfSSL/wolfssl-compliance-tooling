@@ -10,6 +10,8 @@ import importlib.util
 import json
 import os
 import pathlib
+import shutil
+import subprocess
 import tempfile
 import unittest
 from importlib.machinery import SourceFileLoader
@@ -171,6 +173,346 @@ class UnsignedPublishTests(unittest.TestCase):
             self.assertEqual(cm.exception.code, 1)
         finally:
             sys.argv = argv
+
+
+_FAKE_GPG = """#!/usr/bin/env python3
+import os, sys
+log = os.environ.get('GPG_ARGV_LOG')
+if log:
+    with open(log, 'a', encoding='utf-8') as fh:
+        fh.write('\\t'.join(sys.argv[1:]) + '\\n')
+args = sys.argv[1:]
+if '--export-secret-keys' in args:
+    sys.stderr.write('refusing to export a secret key\\n')
+    sys.exit(3)
+if '--fingerprint' in args:
+    primary = 'ABCDEF0123456789ABCDEF0123456789ABCDEF01'
+    sub = '1111111111111111111111111111111111111111'
+    key = args[-1].upper()
+    if key == sub:
+        sys.stdout.write(
+            'fpr:::::::::' + primary + ':\\n'
+            'fpr:::::::::' + sub + ':\\n')
+    else:
+        sys.stdout.write('fpr:::::::::' + primary + ':\\n')
+    sys.exit(0)
+if '--export' in args:
+    sys.stdout.buffer.write(b'-----BEGIN PGP PUBLIC KEY BLOCK-----\\n\\n')
+    sys.exit(0)
+if '--detach-sign' in args:
+    out = args[args.index('--output') + 1]
+    with open(out, 'w', encoding='utf-8') as fh:
+        fh.write('-----BEGIN PGP SIGNATURE-----\\n\\n')
+    sys.exit(0)
+sys.stderr.write('unexpected gpg args\\n')
+sys.exit(2)
+"""
+
+
+class GpgSignTests(unittest.TestCase):
+    def test_parse_primary_fingerprint(self):
+        text = (
+            'pub:u:255:22:5CA29677::::::::\n'
+            'fpr:::::::::abcdef0123456789abcdef0123456789abcdef01:\n'
+            'sub:u:255:18:::::::::\n'
+            'fpr:::::::::1111111111111111111111111111111111111111:\n'
+        )
+        self.assertEqual(
+            pub.parse_gpg_fingerprints(text),
+            ['ABCDEF0123456789ABCDEF0123456789ABCDEF01',
+             '1111111111111111111111111111111111111111'])
+
+    def test_subkey_fingerprint_is_rejected(self):
+        found = [
+            'ABCDEF0123456789ABCDEF0123456789ABCDEF01',
+            '1111111111111111111111111111111111111111',
+        ]
+        primary = found[0]
+        self.assertEqual(pub.select_primary_fingerprint(primary, found), primary)
+        with self.assertRaises(SystemExit) as cm:
+            pub.select_primary_fingerprint(found[1], found)
+        self.assertIn('subkey fingerprint', str(cm.exception))
+        self.assertIn(primary, str(cm.exception))
+
+    def test_rejects_a_key_that_is_not_a_fingerprint(self):
+        with self.assertRaises(SystemExit):
+            pub.validate_gpg_key('--export-secret-keys')
+        with self.assertRaises(SystemExit):
+            pub.validate_gpg_key('../secret.asc')
+        for short in ('5CA29677', '5CA296775CA29677', '0x5CA29677'):
+            with self.assertRaises(SystemExit) as cm:
+                pub.validate_gpg_key(short)
+            self.assertIn('40-hex', str(cm.exception))
+
+    def test_accepts_a_40_hex_fingerprint(self):
+        fp = 'abcdef0123456789abcdef0123456789abcdef01'
+        self.assertEqual(pub.validate_gpg_key(fp), fp.upper())
+        self.assertEqual(pub.validate_gpg_key('0x' + fp), fp.upper())
+
+    def test_gpg_key_signs_with_the_keyring(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            gpg = bindir / 'gpg'
+            gpg.write_text(_FAKE_GPG)
+            gpg.chmod(0o755)
+            log = root / 'gpg-argv.log'
+            docs = root / 'docs'
+            docs.mkdir()
+            adv = ga.parse_record(json.loads(
+                (TESTDATA / 'CVE-2026-5501.json').read_text()))
+            ov = json.loads(EXAMPLE_OVERLAY.read_text())
+            csaf = ga.generate_csaf(
+                [adv], ov, adv['cve'], '2026-01-02T00:00:00Z')
+            (docs / 'CVE-2026-5501.csaf.json').write_text(
+                json.dumps(csaf, indent=2) + '\n')
+            out = root / 'publish'
+            saved_path = os.environ.get('PATH')
+            saved_log = os.environ.get('GPG_ARGV_LOG')
+            os.environ['PATH'] = str(bindir) + os.pathsep + (saved_path or '')
+            os.environ['GPG_ARGV_LOG'] = str(log)
+            import sys
+            argv = sys.argv
+            try:
+                sys.argv = [
+                    'csaf-publish',
+                    '--docs-dir', str(docs),
+                    '--out-root', str(out),
+                    '--gpg-key', 'ABCDEF0123456789ABCDEF0123456789ABCDEF01',
+                ]
+                pub.main()
+            finally:
+                sys.argv = argv
+                if saved_path is None:
+                    os.environ.pop('PATH', None)
+                else:
+                    os.environ['PATH'] = saved_path
+                if saved_log is None:
+                    os.environ.pop('GPG_ARGV_LOG', None)
+                else:
+                    os.environ['GPG_ARGV_LOG'] = saved_log
+
+            csaf_root = out / '.well-known' / 'csaf'
+            doc = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+            self.assertTrue((doc.with_name(doc.name + '.asc')).is_file())
+            md = csaf_root / 'provider-metadata.json'
+            self.assertTrue((md.with_name(md.name + '.asc')).is_file())
+            meta = json.loads(md.read_text())
+            self.assertEqual(
+                meta['public_openpgp_keys'][0]['fingerprint'],
+                'ABCDEF0123456789ABCDEF0123456789ABCDEF01')
+            pubkey = (csaf_root / 'openpgp-key.asc').read_text()
+            self.assertIn('BEGIN PGP PUBLIC KEY BLOCK', pubkey)
+            recorded = log.read_text()
+            self.assertNotIn('export-secret-keys', recorded)
+            self.assertNotIn('--default-key', recorded)
+            self.assertIn(
+                '--local-user\tABCDEF0123456789ABCDEF0123456789ABCDEF01'
+                '\t--detach-sign',
+                recorded)
+            self.assertIn(
+                '--export\tABCDEF0123456789ABCDEF0123456789ABCDEF01',
+                recorded)
+
+    def test_main_rejects_a_short_key_id_before_gpg(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            gpg = bindir / 'gpg'
+            gpg.write_text(_FAKE_GPG)
+            gpg.chmod(0o755)
+            log = root / 'gpg-argv.log'
+            docs = root / 'docs'
+            _write_sample_csaf(docs)
+            out = root / 'publish'
+            saved_path = os.environ.get('PATH')
+            saved_log = os.environ.get('GPG_ARGV_LOG')
+            os.environ['PATH'] = str(bindir) + os.pathsep + (saved_path or '')
+            os.environ['GPG_ARGV_LOG'] = str(log)
+            import sys
+            argv = sys.argv
+            try:
+                sys.argv = [
+                    'csaf-publish',
+                    '--docs-dir', str(docs),
+                    '--out-root', str(out),
+                    '--gpg-key', '5CA29677',
+                ]
+                with self.assertRaises(SystemExit) as cm:
+                    pub.main()
+                self.assertIn('40-hex', str(cm.exception))
+            finally:
+                sys.argv = argv
+                if saved_path is None:
+                    os.environ.pop('PATH', None)
+                else:
+                    os.environ['PATH'] = saved_path
+                if saved_log is None:
+                    os.environ.pop('GPG_ARGV_LOG', None)
+                else:
+                    os.environ['GPG_ARGV_LOG'] = saved_log
+            self.assertFalse(log.exists())
+
+    def test_main_rejects_a_subkey_fingerprint(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            bindir = root / 'bin'
+            bindir.mkdir()
+            gpg = bindir / 'gpg'
+            gpg.write_text(_FAKE_GPG)
+            gpg.chmod(0o755)
+            log = root / 'gpg-argv.log'
+            docs = root / 'docs'
+            _write_sample_csaf(docs)
+            out = root / 'publish'
+            saved_path = os.environ.get('PATH')
+            saved_log = os.environ.get('GPG_ARGV_LOG')
+            os.environ['PATH'] = str(bindir) + os.pathsep + (saved_path or '')
+            os.environ['GPG_ARGV_LOG'] = str(log)
+            import sys
+            argv = sys.argv
+            sub = '1111111111111111111111111111111111111111'
+            try:
+                sys.argv = [
+                    'csaf-publish',
+                    '--docs-dir', str(docs),
+                    '--out-root', str(out),
+                    '--gpg-key', sub,
+                ]
+                with self.assertRaises(SystemExit) as cm:
+                    pub.main()
+                self.assertIn('subkey fingerprint', str(cm.exception))
+            finally:
+                sys.argv = argv
+                if saved_path is None:
+                    os.environ.pop('PATH', None)
+                else:
+                    os.environ['PATH'] = saved_path
+                if saved_log is None:
+                    os.environ.pop('GPG_ARGV_LOG', None)
+                else:
+                    os.environ['GPG_ARGV_LOG'] = saved_log
+            recorded = log.read_text()
+            self.assertIn('--fingerprint', recorded)
+            self.assertNotIn('--detach-sign', recorded)
+            self.assertNotIn('--export', recorded)
+
+    def test_gpg_key_and_key_file_together_fail(self):
+        import sys
+        argv = sys.argv
+        try:
+            sys.argv = [
+                'csaf-publish',
+                '--gpg-key', 'ABCDEF0123456789ABCDEF0123456789ABCDEF01',
+                '--key-file', '/tmp/secret.asc',
+                '--docs-dir', '/tmp/does-not-matter']
+            with self.assertRaises(SystemExit) as cm:
+                pub.main()
+            self.assertIn('only one', str(cm.exception))
+        finally:
+            sys.argv = argv
+
+
+def _write_sample_csaf(docs):
+    docs.mkdir(parents=True, exist_ok=True)
+    adv = ga.parse_record(json.loads(
+        (TESTDATA / 'CVE-2026-5501.json').read_text()))
+    ov = json.loads(EXAMPLE_OVERLAY.read_text())
+    csaf = ga.generate_csaf([adv], ov, adv['cve'], '2026-01-02T00:00:00Z')
+    (docs / 'CVE-2026-5501.csaf.json').write_text(json.dumps(csaf, indent=2) + '\n')
+
+
+class RealGpgRoundTripTests(unittest.TestCase):
+    def test_publish_signs_and_gpg_verifies(self):
+        if shutil.which('gpg') is None:
+            self.skipTest('gpg is not installed')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            home = root / 'gnupg'
+            home.mkdir(mode=0o700)
+            home.chmod(0o700)
+            (home / 'gpg.conf').write_text('batch\nno-tty\n')
+            saved_home = os.environ.get('GNUPGHOME')
+            os.environ['GNUPGHOME'] = str(home)
+            try:
+                gen = subprocess.run(
+                    ['gpg', '--batch', '--homedir', str(home), '--generate-key'],
+                    input=(
+                        '%no-protection\n'
+                        'Key-Type: RSA\n'
+                        'Key-Length: 2048\n'
+                        'Key-Usage: sign\n'
+                        'Name-Real: CSAF Test\n'
+                        'Name-Email: csaf-test@example.invalid\n'
+                        'Expire-Date: 0\n'
+                        '%commit\n'
+                    ),
+                    text=True, capture_output=True, check=False)
+                self.assertEqual(gen.returncode, 0, gen.stderr)
+                shown = subprocess.run(
+                    ['gpg', '--batch', '--homedir', str(home),
+                     '--with-colons', '--fingerprint'],
+                    capture_output=True, text=True, check=False)
+                self.assertEqual(shown.returncode, 0, shown.stderr)
+                fingerprints = pub.parse_gpg_fingerprints(shown.stdout)
+                self.assertEqual(len(fingerprints[0]), 40, shown.stdout)
+                fingerprint = fingerprints[0]
+
+                docs = root / 'docs'
+                _write_sample_csaf(docs)
+                out = root / 'publish'
+                import sys
+                argv = sys.argv
+                try:
+                    sys.argv = [
+                        'csaf-publish',
+                        '--docs-dir', str(docs),
+                        '--out-root', str(out),
+                        '--gpg-key', fingerprint,
+                    ]
+                    pub.main()
+                finally:
+                    sys.argv = argv
+
+                csaf_root = out / '.well-known' / 'csaf'
+                doc = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+                for path in (doc, csaf_root / 'provider-metadata.json'):
+                    asc = path.with_name(path.name + '.asc')
+                    verified = subprocess.run(
+                        ['gpg', '--batch', '--homedir', str(home),
+                         '--verify', str(asc), str(path)],
+                        capture_output=True, text=True, check=False)
+                    self.assertEqual(verified.returncode, 0, verified.stderr)
+                meta = json.loads(
+                    (csaf_root / 'provider-metadata.json').read_text())
+                self.assertEqual(
+                    meta['public_openpgp_keys'][0]['fingerprint'],
+                    fingerprint)
+
+                try:
+                    import pgpy  # noqa: F401
+                except ImportError:
+                    return
+                try:
+                    sys.argv = [
+                        'csaf-verify', '--root', str(csaf_root),
+                        '--fingerprint', fingerprint,
+                    ]
+                    with self.assertRaises(SystemExit) as cm:
+                        ver.main()
+                    self.assertEqual(cm.exception.code, 0)
+                finally:
+                    sys.argv = argv
+            finally:
+                subprocess.run(
+                    ['gpgconf', '--homedir', str(home), '--kill', 'gpg-agent'],
+                    check=False, capture_output=True)
+                if saved_home is None:
+                    os.environ.pop('GNUPGHOME', None)
+                else:
+                    os.environ['GNUPGHOME'] = saved_home
 
 
 class KeygenPermTests(unittest.TestCase):

@@ -54,8 +54,14 @@ These tools run for wolfSSL only. Do not vendor them into a product.
       python3 central/advisory-overlay-draft --release 5.9.4 \
           --changelog ../wolfssl/ChangeLog.md --replace
 - `csaf-publish` — assemble the `.well-known/csaf` directory (hashes, index,
-  provider-metadata, optional OpenPGP signatures via pgpy). Sign at deploy,
-  not in git. Honors `SOURCE_DATE_EPOCH`.
+  provider-metadata, optional OpenPGP signatures). `--gpg-key` takes the full
+  40-hex primary fingerprint and signs with the gpg keyring
+  (`gpg --local-user --armor --detach-sign`). `--default-key` is not used:
+  an unusable key must fail, not fall back to another key. A short key id
+  is rejected. A subkey fingerprint is rejected. Pass the primary
+  fingerprint. The secret key is not written to a file. `--key-file` is the
+  pgpy path for a test key.
+  Sign at deploy, not in git. Honors `SOURCE_DATE_EPOCH`.
 - `csaf-verify` — consumer-side check. Walks `index.txt` and hash sidecars.
   Signature checks require `--fingerprint` matching provider-metadata.json.
 - `advisory-vex-overlay.schema.json` — the per-CVE overlay schema.
