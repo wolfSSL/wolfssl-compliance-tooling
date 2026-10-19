@@ -224,6 +224,71 @@ def _reset_tree(csaf_root):
             shutil.rmtree(d)
 
 
+def _read_index_lines(csaf_root):
+    index = csaf_root / 'index.txt'
+    if not index.is_file():
+        return []
+    lines = []
+    for ln in index.read_text().splitlines():
+        line = ln.strip()
+        if line and not line.startswith('#'):
+            lines.append(line)
+    return lines
+
+
+def _read_changes(csaf_root):
+    path = csaf_root / 'changes.csv'
+    if not path.is_file():
+        return []
+    rows = []
+    with path.open(newline='') as fh:
+        for row in csv.reader(fh):
+            if len(row) >= 2 and row[0].strip():
+                rows.append((row[0].strip(), row[1].strip()))
+    return rows
+
+
+def _merge_kept(csaf_root, prior_index, prior_changes, new_index, new_changes,
+                timestamp):
+    """Keep indexed documents this run did not replace.
+
+    A later product, or a later wolfSSL release, must not delete the files
+    already in the provider tree. The new index is the old index plus this
+    run. A path this run writes replaces that one entry.
+    """
+    new_set = set(new_index)
+    kept = []
+    for rel in prior_index:
+        if rel in new_set:
+            continue
+        if (csaf_root / rel).is_file():
+            kept.append(rel)
+    index = kept + list(new_index)
+    times = {rel: ts for rel, ts in prior_changes}
+    for rel, ts in new_changes:
+        times[rel] = ts
+    rows = [(rel, times.get(rel, timestamp)) for rel in index]
+    rows.sort(key=lambda r: r[1], reverse=True)
+    return index, rows
+
+
+def _drop_unindexed(csaf_root, indexed):
+    """Remove a TLP document that is not in the index, and its sidecars."""
+    for tlp in ('white', 'green', 'amber', 'red'):
+        tlp_dir = csaf_root / tlp
+        if not tlp_dir.is_dir():
+            continue
+        for path in tlp_dir.glob('*/*.json'):
+            rel = path.relative_to(csaf_root).as_posix()
+            if rel in indexed:
+                continue
+            path.unlink()
+            for suffix in ('.sha256', '.sha512', '.asc'):
+                side = path.with_name(path.name + suffix)
+                if side.is_file():
+                    side.unlink()
+
+
 def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -247,6 +312,13 @@ def main():
                         'key id and a subkey fingerprint are rejected. '
                         'The secret key is not exported. Do not combine '
                         'with --key-file.')
+    p.add_argument('--keep', action='store_true',
+                   help='Add this run to the existing provider tree. '
+                        'Documents already listed in index.txt stay. '
+                        'A document this run writes replaces the same path. '
+                        'A .json file that is not in the index is removed. '
+                        'Without this flag the tree is rebuilt from '
+                        '--docs-dir only.')
     args = p.parse_args()
     if args.key_file and args.gpg_key:
         sys.exit('ERROR: pass only one of --key-file and --gpg-key.')
@@ -254,7 +326,13 @@ def main():
     docs_dir = pathlib.Path(args.docs_dir)
     csaf_root = pathlib.Path(args.out_root) / '.well-known' / 'csaf'
     csaf_root.mkdir(parents=True, exist_ok=True)
-    _reset_tree(csaf_root)
+    prior_index = []
+    prior_changes = []
+    if args.keep:
+        prior_index = _read_index_lines(csaf_root)
+        prior_changes = _read_changes(csaf_root)
+    else:
+        _reset_tree(csaf_root)
 
     timestamp = build_timestamp()
 
@@ -316,6 +394,12 @@ def main():
         index_lines.append(rel)
         released = doc['document']['tracking'].get('current_release_date', timestamp)
         changes_rows.append((rel, released))
+
+    if args.keep:
+        index_lines, changes_rows = _merge_kept(
+            csaf_root, prior_index, prior_changes, index_lines, changes_rows,
+            timestamp)
+        _drop_unindexed(csaf_root, set(index_lines))
 
     # index.txt
     (csaf_root / 'index.txt').write_text('\n'.join(index_lines) + '\n')

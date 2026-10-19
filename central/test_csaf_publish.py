@@ -120,6 +120,44 @@ class UnsignedPublishTests(unittest.TestCase):
         json_docs = sorted(p.name for p in (csaf_root / 'white' / '2026').glob('*.json'))
         self.assertEqual(json_docs, ['cve-2026-5501.json'])
 
+    def test_keep_adds_a_document_and_drops_an_unindexed_file(self):
+        csaf_root = self._publish()
+        kept = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+        kept_hash = _sha(kept, 'sha256')
+        docs2 = self.root / 'docs2'
+        docs2.mkdir()
+        second = json.loads((self.docs / 'CVE-2026-5501.csaf.json').read_text())
+        second['document']['tracking']['id'] = 'CVE-2026-5999'
+        (docs2 / 'CVE-2026-5999.csaf.json').write_text(
+            json.dumps(second, indent=2) + '\n')
+        stale = csaf_root / 'white' / '2026' / 'cve-1999-0001.json'
+        stale.write_text('{}\n')
+        import sys
+        argv = sys.argv
+        try:
+            sys.argv = [
+                'csaf-publish',
+                '--docs-dir', str(docs2),
+                '--out-root', str(self.out),
+                '--base-url', 'https://www.wolfssl.com/.well-known/csaf',
+                '--keep',
+            ]
+            pub.main()
+        finally:
+            sys.argv = argv
+        self.assertTrue(kept.is_file())
+        self.assertEqual(_sha(kept, 'sha256'), kept_hash)
+        self.assertTrue((csaf_root / 'white' / '2026' / 'cve-2026-5999.json').is_file())
+        self.assertFalse(stale.exists())
+        index = (csaf_root / 'index.txt').read_text().splitlines()
+        self.assertEqual(index, [
+            'white/2026/cve-2026-5501.json',
+            'white/2026/cve-2026-5999.json',
+        ])
+        changes = (csaf_root / 'changes.csv').read_text()
+        self.assertIn('white/2026/cve-2026-5501.json', changes)
+        self.assertIn('white/2026/cve-2026-5999.json', changes)
+
     def test_source_date_epoch_pins_metadata_timestamp(self):
         saved = os.environ.get('SOURCE_DATE_EPOCH')
         os.environ['SOURCE_DATE_EPOCH'] = '1700000000'
