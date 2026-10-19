@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Tests for tools/wolfssl-compliance-tooling-sync, focused on the --subdir containment guard.
+"""Tests for tools/wolfssl-compliance-tooling-sync: the --subdir containment
+guard and the --check drift report.
 
 --subdir is joined onto --dest and then written into, so an absolute value or
 one containing .. must be refused rather than allowed to place/overwrite files
@@ -98,6 +99,98 @@ class TestSymlinkInsideDest(unittest.TestCase):
             self.assertNotEqual(r.returncode, 0)
             self.assertEqual(os.listdir(outside), [],
                              "symlinked dir under --subdir wrote outside")
+
+
+
+def _sync(dest, *extra):
+    return subprocess.run(
+        [sys.executable, SYNC, "--dest", dest, *extra],
+        capture_output=True, text=True)
+
+
+class TestCheckAndPrune(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dest = self._tmp.name
+        self.sbom = os.path.join(self.dest, "tools", "sbom")
+        r = _sync(self.dest)
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _add_stale(self):
+        stale = os.path.join(self.sbom, "frontends", "old_sbom.py")
+        with open(stale, "w") as f:
+            f.write("# removed upstream\n")
+        return stale
+
+    def test_clean_copy_passes_check(self):
+        r = _sync(self.dest, "--check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_check_reports_stale_file(self):
+        self._add_stale()
+        r = _sync(self.dest, "--check")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("old_sbom.py (not in share/)", r.stderr)
+
+    def test_check_ignores_bytecode(self):
+        cache = os.path.join(self.sbom, "frontends", "__pycache__")
+        os.makedirs(cache)
+        with open(os.path.join(cache, "x.cpython-312.pyc"), "wb") as f:
+            f.write(b"\0")
+        r = _sync(self.dest, "--check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_check_reports_lost_executable_bit(self):
+        gen = os.path.join(self.sbom, "gen-sbom")
+        os.chmod(gen, 0o644)
+        r = _sync(self.dest, "--check")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("gen-sbom (executable bit)", r.stderr)
+
+    def test_sync_restores_executable_bit(self):
+        gen = os.path.join(self.sbom, "gen-sbom")
+        os.chmod(gen, 0o644)
+        r = _sync(self.dest)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(os.access(gen, os.X_OK))
+
+    def test_sync_without_prune_keeps_stale_file(self):
+        stale = self._add_stale()
+        r = _sync(self.dest)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--prune", r.stderr)
+        self.assertTrue(os.path.isfile(stale))
+
+    def test_prune_deletes_stale_file(self):
+        stale = self._add_stale()
+        olddir = os.path.join(self.sbom, "olddir")
+        os.makedirs(olddir)
+        with open(os.path.join(olddir, "gone.py"), "w") as f:
+            f.write("\n")
+        r = _sync(self.dest, "--prune")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertFalse(os.path.exists(stale))
+        self.assertFalse(os.path.exists(olddir))
+        self.assertTrue(os.path.isfile(os.path.join(self.sbom, "VERSION")))
+        r = _sync(self.dest, "--check")
+        self.assertEqual(r.returncode, 0, r.stderr)
+
+    def test_stale_directory_symlink_reported_and_pruned(self):
+        with tempfile.TemporaryDirectory() as target:
+            with open(os.path.join(target, "keep.py"), "w") as f:
+                f.write("\n")
+            link = os.path.join(self.sbom, "old-frontends")
+            os.symlink(target, link)
+            r = _sync(self.dest, "--check")
+            self.assertNotEqual(r.returncode, 0)
+            self.assertIn("old-frontends (not in share/)", r.stderr)
+            r = _sync(self.dest, "--prune")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(os.path.lexists(link))
+            self.assertTrue(os.path.isfile(os.path.join(target, "keep.py")))
 
 
 if __name__ == "__main__":
