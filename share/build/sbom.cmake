@@ -28,6 +28,7 @@
 #   SPDX_OUT <path>   Explicit SPDX output path.
 #   COMPONENT_TYPE <t>  CycloneDX component.type, e.g. firmware for a
 #                     bootloader (default: the generator's own default).
+#   COPYRIGHT_START <year>  First year of the copyright line (default: 2006).
 #   SETTINGS_H <path> Settings header included in the macro capture, so DEFS
 #                     are interpreted by the header that derives from them.
 #                     Without it the capture sees the -D list alone and every
@@ -106,6 +107,7 @@ function(wolfssl_compliance_tooling_add_sbom)
              SBOM_GEN GEN_SBOM HOSTCC ROOT LIB USER_SETTINGS OPTIONS_H SETTINGS_H
              DEP_WOLFSSL DEP_WOLFCRYPT DEP_OPENSSL DEP_LIBZ CRYPTO_ONLY
              CDX_OUT SPDX_OUT TV_OUT COMPONENT_TYPE DOCUMENT_NAMESPACE
+             COPYRIGHT_START
              LICENSE_OVERRIDE LICENSE_TEXT
              INSTALL_DIR INSTALL_DEPENDS INSTALL_TARGET UNINSTALL_TARGET)
     set(_multi TARGETS DEFS DEP_VERSION INCLUDE_DIRS
@@ -240,6 +242,9 @@ function(wolfssl_compliance_tooling_add_sbom)
     endif()
     if(SB_COMPONENT_TYPE)
         list(APPEND _cmd --component-type ${SB_COMPONENT_TYPE})
+    endif()
+    if(NOT "${SB_COPYRIGHT_START}" STREQUAL "")
+        list(APPEND _cmd --copyright-start ${SB_COPYRIGHT_START})
     endif()
     if(SB_LICENSE_OVERRIDE)
         list(APPEND _cmd --license-override ${SB_LICENSE_OVERRIDE})

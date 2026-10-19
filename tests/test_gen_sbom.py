@@ -2645,6 +2645,70 @@ class TestGenerateSpdx(unittest.TestCase):
             self.assertTrue(ann['comment'])
 
 
+class TestCopyrightStart(unittest.TestCase):
+    """--copyright-start sets the first year of the main component's
+    copyright line; the supplier names the holder."""
+
+    def _docs(self, **kw):
+        cdx = gs.generate_cdx(**{**TestGenerateCdx.BASE_KW, **kw})
+        spdx = gs.generate_spdx(**{**TestGenerateSpdx.BASE_KW, **kw})
+        return (cdx['metadata']['component']['copyright'],
+                spdx['packages'][0]['copyrightText'])
+
+    def test_default_is_unchanged(self):
+        self.assertEqual(self._docs(),
+                         ('Copyright (C) 2006-2024 wolfSSL Inc.',) * 2)
+
+    def test_start_override(self):
+        self.assertEqual(self._docs(copyright_start=2020),
+                         ('Copyright (C) 2020-2024 wolfSSL Inc.',) * 2)
+
+    def test_single_year(self):
+        self.assertEqual(self._docs(copyright_start=2024),
+                         ('Copyright (C) 2024 wolfSSL Inc.',) * 2)
+
+    def test_supplier_is_the_holder(self):
+        self.assertEqual(self._docs(supplier='Acme Ltd.'),
+                         ('Copyright (C) 2006-2024 Acme Ltd.',) * 2)
+
+    def test_identity_unchanged_by_default_start(self):
+        args = ('a' * 64, 'GPL-3.0-only', [], [], {})
+        self.assertEqual(
+            gs.config_identity(*args),
+            gs.config_identity(*args, copyright_start=2006))
+        self.assertNotEqual(
+            gs.config_identity(*args),
+            gs.config_identity(*args, copyright_start=2020))
+
+    def _run(self, start):
+        import subprocess
+        here = pathlib.Path(__file__).resolve().parent
+        script = here.parent / 'share' / 'gen-sbom'
+        with tempfile.TemporaryDirectory() as d:
+            lib = os.path.join(d, 'libx.a')
+            with open(lib, 'wb') as f:
+                f.write(b'lib')
+            env = dict(os.environ, SOURCE_DATE_EPOCH='1704067200')
+            return subprocess.run(
+                ['python3', str(script), '--name', 'wolfssl',
+                 '--version', '0.0.0-test', '--license-file', '/dev/null',
+                 '--options-h', '/dev/null', '--lib', lib,
+                 '--copyright-start', start,
+                 '--cdx-out', os.path.join(d, 'o.cdx.json'),
+                 '--spdx-out', os.path.join(d, 'o.spdx.json')],
+                capture_output=True, text=True, env=env)
+
+    def test_cli_accepts_build_year(self):
+        result = self._run('2024')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_cli_rejects_invalid_year(self):
+        for start in ('0', '999', '2025', 'twenty'):
+            result = self._run(start)
+            self.assertNotEqual(result.returncode, 0, start)
+            self.assertIn('--copyright-start', result.stderr)
+
+
 # ---------------------------------------------------------------------------
 # Bomsh provenance verifier
 #
