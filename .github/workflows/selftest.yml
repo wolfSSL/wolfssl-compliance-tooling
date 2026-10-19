@@ -27,6 +27,12 @@ jobs:
       - name: Install unit-test dependencies
         run: python -m pip install --user pcpp
 
+      - name: Install autotools test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y autoconf automake libtool
+          python -m pip install spdx-tools
+
       - name: Syntax-check all Python
         run: |
           python -m py_compile \
@@ -53,7 +59,8 @@ jobs:
             tests/test_sbom_identity.py \
             tests/test_low_findings.py \
             tests/test_iar_sbom.py \
-            tests/test_wolfssl_compliance_tooling_sync.py
+            tests/test_wolfssl_compliance_tooling_sync.py \
+            tests/test_sbom_autotools.py
 
       - name: Run generator unit tests
         run: python -m unittest tests/test_gen_sbom.py
@@ -75,6 +82,9 @@ jobs:
 
       - name: Run wolfssl-compliance-tooling-sync tests
         run: python -m unittest tests/test_wolfssl_compliance_tooling_sync.py
+
+      - name: Run autotools sbom.am test
+        run: python -m unittest tests/test_sbom_autotools.py
 
       - name: Run self-test
         run: python tests/test_sbom.py
