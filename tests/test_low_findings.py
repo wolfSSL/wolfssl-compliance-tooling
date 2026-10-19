@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Regression tests for the low-severity review-findings bundle (gpex.20)."""
 
+import importlib.util
 import json
 import os
 import stat
@@ -15,12 +16,19 @@ SHARE = os.path.join(REPO, "share")
 GEN_SBOM = os.path.join(SHARE, "gen-sbom")
 VALIDATE = os.path.join(SHARE, "validate_sbom.py")
 
-gs = SourceFileLoader("gen_sbom", GEN_SBOM).load_module()
-drv = SourceFileLoader("sbom_driver", os.path.join(SHARE, "sbom-driver.py")
-                       ).load_module()
-compdb = SourceFileLoader(
-    "compdb_sbom", os.path.join(SHARE, "frontends", "compdb_sbom.py")
-).load_module()
+
+def _load(name, path):
+    loader = SourceFileLoader(name, path)
+    module = importlib.util.module_from_spec(
+        importlib.util.spec_from_loader(name, loader))
+    loader.exec_module(module)
+    return module
+
+
+gs = _load("gen_sbom", GEN_SBOM)
+drv = _load("sbom_driver", os.path.join(SHARE, "sbom-driver.py"))
+compdb = _load("compdb_sbom",
+               os.path.join(SHARE, "frontends", "compdb_sbom.py"))
 
 
 class TestAtomicWrite(unittest.TestCase):
@@ -35,9 +43,11 @@ class TestAtomicWrite(unittest.TestCase):
     def test_dev_stdout_redirected_to_file(self):
         # `--cdx-out /dev/stdout > out.json`: /dev/stdout is a symlink to the
         # redirected file and must be written through, not replaced.
-        code = ("from importlib.machinery import SourceFileLoader as L; "
-                "L('g', %r).load_module().write_json_atomic({'a': 1}, "
-                "'/dev/stdout')" % GEN_SBOM)
+        code = ("import importlib.util as u; "
+                "from importlib.machinery import SourceFileLoader as L; "
+                "l = L('g', %r); m = u.module_from_spec("
+                "u.spec_from_loader('g', l)); l.exec_module(m); "
+                "m.write_json_atomic({'a': 1}, '/dev/stdout')" % GEN_SBOM)
         with tempfile.TemporaryDirectory() as d:
             out = os.path.join(d, "out.json")
             with open(out, "w") as f:
