@@ -1,0 +1,265 @@
+#!/usr/bin/env python3
+"""Run one wolfSSL advisory release, then print the steps that stay manual.
+
+`draft` writes missing VEX overlay lines from the ChangeLog and stops.
+Read every REVIEW line before anything is published.
+`advisory-completeness` checks that each CVE has a record and an overlay
+entry. It does not judge whether the determination is right.
+
+`publish` runs only after that review. It checks completeness, writes the
+release bundle and the per-CVE documents, and adds those documents to the
+provider tree. Signing is `csaf-publish --gpg-key`. A separate
+`gpg --armor --detach-sign` does not update provider-metadata.json.
+
+The command accepts one product. wolfSSH, wolfTPM, and wolfBoot need a
+product profile before this command can run them. Releases are staggered,
+so one run must leave the other products' files in the provider tree.
+"""
+
+import argparse
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+
+_HERE = pathlib.Path(__file__).resolve().parent
+_REPO = _HERE.parent
+_SUPPORTED_PRODUCT = 'wolfSSL'
+
+
+def _reject_other_product(product):
+    if product != _SUPPORTED_PRODUCT:
+        sys.exit(
+            f'ERROR: release-advisory supports {_SUPPORTED_PRODUCT} only. '
+            f'{product} needs a product profile first: the ChangeLog header, '
+            'the bullet shape, the CPE, and the overlay file. '
+            'One product per run. csaf-publish --keep leaves the other '
+            'products in the provider tree.')
+
+
+def _run(argv):
+    shown = ' '.join(argv)
+    print(f'+ {shown}')
+    result = subprocess.run(argv)
+    if result.returncode != 0:
+        sys.exit(result.returncode)
+
+
+def _pin_ids(releases_root, release):
+    pin = pathlib.Path(releases_root) / release / 'cves'
+    if not pin.is_file():
+        sys.exit(f'ERROR: pin file not found: {pin}')
+    ids = []
+    for ln in pin.read_text().splitlines():
+        line = ln.strip()
+        if line and not line.startswith('#'):
+            ids.append(line)
+    if not ids:
+        sys.exit(f'ERROR: pin file is empty: {pin}')
+    return ids
+
+
+def _copy_pin_records(ids, records_dir, dest):
+    records = pathlib.Path(records_dir)
+    dest.mkdir(parents=True, exist_ok=True)
+    for cve in ids:
+        src = records / f'{cve}.json'
+        if not src.is_file():
+            sys.exit(f'ERROR: missing record {src}')
+        shutil.copy(src, dest / src.name)
+
+
+def draft_argv(py, release, changelog, overlay, replace, dry_run):
+    argv = [py, str(_HERE / 'advisory-overlay-draft'),
+            '--release', release,
+            '--changelog', changelog,
+            '--product', _SUPPORTED_PRODUCT]
+    if overlay:
+        argv.extend(['--overlay', overlay])
+    if replace:
+        argv.append('--replace')
+    if dry_run:
+        argv.append('--dry-run')
+    return argv
+
+
+def print_draft_stop(release, changelog):
+    print()
+    print('Stop here. Read every REVIEW line.')
+    print('advisory-completeness does not judge the determination.')
+    print('When the overlay is right, run:')
+    print(f'  {sys.executable} {_HERE / "release-advisory"} publish '
+          f'--release {release} --changelog {changelog}')
+
+
+def completeness_argv(py, release, changelog, overlay, records_dir,
+                      releases_root):
+    argv = [
+        py, str(_HERE / 'advisory-completeness'),
+        '--release-dir', str(pathlib.Path(releases_root) / release),
+        '--changelog', changelog,
+        '--product', _SUPPORTED_PRODUCT,
+        '--records-dir', records_dir,
+    ]
+    if overlay:
+        argv.extend(['--overlay', overlay])
+    return argv
+
+
+def publish_steps(py, release, overlay, records_dir, releases_root,
+                  out_dir, out_root, gpg_key, base_url, pin_records_dir):
+    """Command list after the completeness gate. pin_records_dir holds this pin."""
+    steps = []
+    bundle = f'wolfssl-{release}'
+    gen = [
+        py, str(_HERE / 'gen-advisory'),
+        '--records-dir', records_dir,
+        '--releases-root', releases_root,
+        '--advisory-id', bundle,
+        '--csaf-out', str(pathlib.Path(out_dir) / f'{bundle}.csaf.json'),
+        '--cdx-vex-out', str(pathlib.Path(out_dir) / f'{bundle}.cdx.json'),
+    ]
+    if overlay:
+        gen.extend(['--vex-overlay', overlay])
+    steps.append(gen)
+    per_cve = [
+        py, str(_HERE / 'gen-advisory'),
+        '--records-dir', pin_records_dir,
+        '--out-dir', out_dir,
+    ]
+    if overlay:
+        per_cve.extend(['--vex-overlay', overlay])
+    steps.append(per_cve)
+    publish = [
+        py, str(_HERE / 'csaf-publish'),
+        '--docs-dir', out_dir,
+        '--out-root', out_root,
+        '--keep',
+    ]
+    if base_url:
+        publish.extend(['--base-url', base_url])
+    if gpg_key:
+        publish.extend(['--gpg-key', gpg_key])
+    steps.append(publish)
+    verify = [
+        py, str(_HERE / 'csaf-verify'),
+        '--root', str(pathlib.Path(out_root) / '.well-known' / 'csaf'),
+    ]
+    if gpg_key:
+        verify.extend(['--fingerprint', gpg_key])
+    steps.append(verify)
+    return steps
+
+
+def print_publish_manual(release, out_dir, out_root, gpg_key):
+    tree = pathlib.Path(out_root) / '.well-known' / 'csaf'
+    print()
+    print(f'Review of the {release} overlay is a separate step. '
+          'Do not copy a tree you have not read.')
+    print(f'Copy {tree} onto the website provider directory. '
+          'Add these files to the directory that is already there. '
+          'A full replacement removes the product that shipped earlier.')
+    print(f'Update the GitHub release for wolfSSL {release} '
+          f'with the bundle in {out_dir}.')
+    if gpg_key:
+        print('The signature is already in that tree: provider-metadata.json '
+              'and the .asc files. A separate gpg --armor --detach-sign '
+              'does not update provider-metadata.json.')
+    else:
+        print('This tree is unsigned. Sign it with '
+              'csaf-publish --gpg-key and the full 40-hex primary '
+              'fingerprint, then run csaf-verify --fingerprint. '
+              'A separate gpg --armor --detach-sign does not update '
+              'provider-metadata.json.')
+
+
+def cmd_draft(args):
+    _reject_other_product(args.product)
+    _run(draft_argv(sys.executable, args.release, args.changelog, args.overlay,
+                    args.replace, args.dry_run))
+    print_draft_stop(args.release, args.changelog)
+
+
+def cmd_publish(args):
+    _reject_other_product(args.product)
+    ids = _pin_ids(args.releases_root, args.release)
+    _run(completeness_argv(
+        sys.executable, args.release, args.changelog, args.overlay,
+        args.records_dir, args.releases_root))
+    out_dir = pathlib.Path(args.out_dir)
+    if out_dir.exists():
+        shutil.rmtree(out_dir)
+    out_dir.mkdir(parents=True)
+    with tempfile.TemporaryDirectory() as tmp:
+        pin_dir = str(pathlib.Path(tmp) / 'records')
+        _copy_pin_records(ids, args.records_dir, pathlib.Path(pin_dir))
+        steps = publish_steps(
+            sys.executable, args.release, args.overlay,
+            args.records_dir, args.releases_root, str(out_dir), args.out_root,
+            args.gpg_key, args.base_url, pin_dir)
+        for argv in steps:
+            _run(argv)
+    print_publish_manual(args.release, out_dir, args.out_root, args.gpg_key)
+
+
+def main():
+    p = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = p.add_subparsers(dest='cmd', required=True)
+
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument('--release', required=True,
+                        help='wolfSSL version, for example 5.9.4.')
+    common.add_argument('--changelog', required=True,
+                        help='Path to the wolfSSL ChangeLog.')
+    common.add_argument('--product', default=_SUPPORTED_PRODUCT,
+                        help='Product name. Only wolfSSL is accepted.')
+    common.add_argument('--overlay', default=None,
+                        help='VEX overlay JSON. The default is '
+                             'advisories/vex-overlay.json inside each tool.')
+
+    draft = sub.add_parser(
+        'draft', parents=[common],
+        help='Write missing overlay lines and stop for review.')
+    draft.add_argument('--replace', action='store_true',
+                       help='Rewrite overlay keys that this release drafts.')
+    draft.add_argument('--dry-run', action='store_true',
+                       help='Print the draft and write nothing.')
+    draft.set_defaults(func=cmd_draft)
+
+    publish = sub.add_parser(
+        'publish', parents=[common],
+        help='After review: check, generate, and add documents to the tree.')
+    publish.add_argument('--records-dir',
+                         default=str(_REPO / 'advisories' / 'records'),
+                         help='Directory of CVE JSON 5.x records.')
+    publish.add_argument('--releases-root',
+                         default=str(_REPO / 'advisories' / 'releases'),
+                         help='Directory of <version>/cves pin files.')
+    publish.add_argument('--out-dir', default=None,
+                         help='Generated documents for this release. '
+                              'Default: advisories/out/wolfssl-<release>. '
+                              'The directory is replaced on each run.')
+    publish.add_argument('--out-root',
+                         default=str(_REPO / 'advisories' / 'publish'),
+                         help='Provider tree root. Documents are added. '
+                              'Other products stay.')
+    publish.add_argument('--base-url', default=None,
+                         help='Public base URL. The publish tool default '
+                              'is used when this is omitted.')
+    publish.add_argument('--gpg-key', default=None,
+                         help='Full 40-hex primary fingerprint. '
+                              'Passed to csaf-publish --gpg-key and '
+                              'csaf-verify --fingerprint.')
+    publish.set_defaults(func=cmd_publish)
+
+    args = p.parse_args()
+    if args.cmd == 'publish' and not args.out_dir:
+        args.out_dir = str(_REPO / 'advisories' / 'out' / f'wolfssl-{args.release}')
+    args.func(args)
+
+
+if __name__ == '__main__':
+    main()
