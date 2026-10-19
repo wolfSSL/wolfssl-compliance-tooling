@@ -103,7 +103,7 @@ system it ships) while all of them converge on the same engine.
 | `build/sbom.mk` | Plain Make | Product sets `SBOM_NAME`/`SBOM_SRCS`/`SBOM_CFLAGS` (plus `SBOM_SETTINGS_H` when a `user_settings.h` derives the config), includes the fragment. |
 | `frontends/compdb_sbom.py` | Any `compile_commands.json` | The universal fallback — TI CCS, MPLAB X, Renesas e2studio, or anything wrappable with `bear -- make ...`. |
 | `frontends/iar_sbom.py` | IAR Embedded Workbench `.ewp` | Parses the project XML directly — there's no build step to hook into. |
-| `frontends/zephyr_sbom.py` | Zephyr module | Reads `zephyr_library_sources(...)` since west owns the actual build. |
+| `frontends/zephyr_sbom.py` | Zephyr module | Reads the module's sources from a west build's `compile_commands.json`, since west owns the actual build. |
 
 ## Products can occupy more than one tier
 

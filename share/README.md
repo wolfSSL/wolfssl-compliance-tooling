@@ -14,7 +14,7 @@ into a product at `tools/sbom/`, together with the pin files (`VERSION` and
 | `frontends/compdb_sbom.py` | Extractor for any `compile_commands.json`. |
 | `frontends/iar_sbom.py` | Extractor for an IAR Embedded Workbench `.ewp`. |
 | `frontends/included_sources.py` | Finds the source files a compile command compiles in through `#include` (`compdb_sbom.py --included-sources`). |
-| `frontends/zephyr_sbom.py` | Extractor for a Zephyr module `CMakeLists.txt`. |
+| `frontends/zephyr_sbom.py` | Zephyr module, from a west build's `compile_commands.json`. |
 | `build/sbom.mk` | Shared plain-Make fragment and `wolfssl_compliance_tooling_sbom_rule` macro. |
 | `build/sbom.cmake` | Shared CMake helper: `wolfssl_compliance_tooling_add_sbom()`. |
 | `gen-sbom` | The vendored SBOM generator. |
@@ -84,6 +84,13 @@ A product does not copy logic. It describes itself:
   `SBOM_GEN` is the canonical generator override; `GEN_SBOM` remains a legacy
   alias for compatibility.
 - Autotools: set the `SBOM_*` variables and `include tools/sbom/sbom.am`.
+- Zephyr: call `wolfssl_compliance_tooling_add_sbom(TARGETS
+  ${ZEPHYR_CURRENT_LIBRARY} ...)` from the module's own CMakeLists, after its
+  last `zephyr_library_sources()`, so the SBOM records the source set west
+  actually built. Without that hook, run `zephyr_sbom.py` on the build's
+  `compile_commands.json` with `--root` set to the module, and pass
+  `--user-settings` with the module's settings header to record its
+  configuration.
 
 Keep only true product knowledge in the product: the route-through script, the
 module extractor, and the HAL source selector.
