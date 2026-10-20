@@ -98,6 +98,13 @@ jobs:
           make -j"$(nproc)"
           make install
 
+      - name: Install pyspdxtools
+        if: matrix.product == 'wolftpm'
+        run: |
+          # configure records PYSPDXTOOLS. Install the tool before configure.
+          python3 -m pip install --user 'spdx-tools==0.8.*'
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Configure and build wolfTPM
         if: matrix.product == 'wolftpm'
         working-directory: product
@@ -110,11 +117,7 @@ jobs:
       - name: Generate the wolfTPM SBOM
         if: matrix.product == 'wolftpm'
         working-directory: product
-        run: |
-          # sbom.am checks for pyspdxtools before it runs gen-sbom.
-          python3 -m pip install --user 'spdx-tools==0.8.*'
-          export PATH="$HOME/.local/bin:$PATH"
-          make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
+        run: make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
 
       - name: Validate the SBOM
         working-directory: product
