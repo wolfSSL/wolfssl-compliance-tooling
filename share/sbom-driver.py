@@ -435,7 +435,9 @@ def main():
                 with open(args.options_h, encoding="utf-8", errors="replace") as f:
                     defines_text = f.read()
             elif args.cflags:
-                if args.settings_h and not os.path.isfile(args.settings_h):
+                # A relative path is left to the compiler's -include search.
+                if (os.path.isabs(args.settings_h)
+                        and not os.path.isfile(args.settings_h)):
                     sys.exit(f"ERROR: --settings-h '{args.settings_h}' "
                              f"does not exist.")
                 defines_text = capture_macros(

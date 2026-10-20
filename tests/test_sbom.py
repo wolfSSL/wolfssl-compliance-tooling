@@ -353,6 +353,31 @@ def integration_tests(gen_sbom):
             "--cdx-out", "l.cdx.json", "--spdx-out", "l.spdx.json"])
         check(r.returncode == 0, "library generate succeeds")
 
+        # A relative --settings-h resolves like -include: cwd, then -I in
+        # CFLAGS, then --include-dir.
+        for sub, macro in (("a", "PICK_A"), ("b", "PICK_B")):
+            os.makedirs(os.path.join(d, sub, "cfg"))
+            with open(os.path.join(d, sub, "cfg", "s.h"), "w") as f:
+                f.write(f"#ifdef SEL\n#define {macro} 1\n#endif\n")
+        for extra, want, label in (
+                (["--include-dir", os.path.join(d, "b")], "PICK_B",
+                 "relative --settings-h found under --include-dir"),
+                ([f"--cflags=-DSEL -I{os.path.join(d, 'a')}",
+                  "--include-dir", os.path.join(d, "b")], "PICK_A",
+                 "relative --settings-h prefers the CFLAGS -I")):
+            if not any(e.startswith("--cflags") for e in extra):
+                extra = ["--cflags=-DSEL"] + extra
+            r = run_driver(d, gen_sbom, [
+                "--srcs-file", srcs, "--settings-h", "cfg/s.h", *extra,
+                "--cdx-out", "s.cdx.json", "--spdx-out", "s.spdx.json"])
+            text = open(os.path.join(d, "s.cdx.json")).read() \
+                if r.returncode == 0 else r.stderr
+            check(r.returncode == 0 and want in text, label)
+        r = run_driver(d, gen_sbom, [
+            "--srcs-file", srcs, "--cflags=-DSEL", "--settings-h", "cfg/s.h",
+            "--cdx-out", "s.cdx.json", "--spdx-out", "s.spdx.json"])
+        check(r.returncode != 0, "unresolvable relative --settings-h fails")
+
         # Reproducibility: same inputs + SOURCE_DATE_EPOCH => byte-identical.
         env = dict(os.environ, SOURCE_DATE_EPOCH="1700000000")
         outs = []

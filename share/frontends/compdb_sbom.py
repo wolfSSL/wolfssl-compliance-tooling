@@ -107,8 +107,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('compdb', help='Path to compile_commands.json')
     ap.add_argument('--name', required=True, help='Package name for the SBOM.')
-    ap.add_argument('--include', action='append', default=[])
-    ap.add_argument('--exclude', action='append', default=[])
+    ap.add_argument('--include', action='append', default=[],
+                    help='Keep sources whose path matches this regex '
+                         '(re.search, repeatable).')
+    ap.add_argument('--exclude', action='append', default=[],
+                    help='Drop sources whose path matches this regex '
+                         '(re.search, repeatable).')
     ap.add_argument('--driver', default=DEFAULT_DRIVER,
                     help='Path to the shared sbom-driver.')
     ap.add_argument('--gen-sbom', default=None)
@@ -184,16 +188,16 @@ def main():
         fpath = os.path.normpath(fpath)
         if not fpath.lower().endswith(SRC_EXTS):
             continue
+        if inc and not any(r.search(fpath) for r in inc):
+            continue
+        if exc and any(r.search(fpath) for r in exc):
+            continue
         if root_abs:
             real = os.path.realpath(fpath)
             if os.path.commonpath([real, root_abs]) != root_abs:
                 sys.stderr.write(
                     f"WARNING: skipping source outside --root: {fpath}\n")
                 continue
-        if inc and not any(r.search(fpath) for r in inc):
-            continue
-        if exc and any(r.search(fpath) for r in exc):
-            continue
         for d in extract_defines(entry_tokens(entry)):
             name = macro_name(d)
             if name not in defined:

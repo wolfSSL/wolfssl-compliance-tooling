@@ -152,5 +152,33 @@ class TestForwarding(CompdbCase):
             self.assertFalse(os.path.exists(self.argv_path))
 
 
+class TestRootFilter(CompdbCase):
+    def write_outside(self):
+        root = os.path.join(self.d, "mod")
+        os.mkdir(root)
+        open(os.path.join(root, "in.c"), "w").close()
+        open(os.path.join(self.d, "app.c"), "w").close()
+        with open(self.db, "w") as f:
+            json.dump([{"directory": self.d, "file": n,
+                        "arguments": ["cc", "-c", n]}
+                       for n in ("mod/in.c", "app.c")], f)
+        return root
+
+    def test_filtered_out_source_is_not_warned(self):
+        root = self.write_outside()
+        r = self.run_compdb("--root", root, "--include", "/mod/",
+                            "--print-only")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertNotIn("outside --root", r.stderr)
+        self.assertIn("in.c", r.stdout)
+
+    def test_selected_source_outside_root_is_warned(self):
+        root = self.write_outside()
+        r = self.run_compdb("--root", root, "--print-only")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("outside --root", r.stderr)
+        self.assertNotIn("app.c", r.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
