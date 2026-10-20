@@ -1,0 +1,159 @@
+name: SBOM product canary
+
+# On a change to the vendored set, copy share/ into a temporary checkout of
+# each ready product and generate that product's SBOM. The product
+# repositories keep their pinned copy. This job does not push to them.
+#
+# wolfBoot is the plain-Make product. wolfTPM is the autotools product.
+# Add a product here only after it vendors tools/sbom/.
+
+on:
+  pull_request:
+    paths:
+      - 'share/**'
+      - 'VERSION'
+      - 'tools/wolfssl-compliance-tooling-sync'
+      - '.github/workflows/sbom-canary.yml'
+  push:
+    branches: [master]
+    paths:
+      - 'share/**'
+      - 'VERSION'
+      - 'tools/wolfssl-compliance-tooling-sync'
+      - '.github/workflows/sbom-canary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sbom-canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    name: ${{ matrix.product }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - product: wolfboot
+            repository: wolfSSL/wolfBoot
+            name-prefix: wolfboot
+          - product: wolftpm
+            repository: wolfSSL/wolfTPM
+            name-prefix: wolftpm
+    steps:
+      - name: Checkout wolfssl-compliance-tooling
+        uses: actions/checkout@v4
+        with:
+          path: tooling
+
+      - name: Checkout ${{ matrix.product }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.repository }}
+          path: product
+
+      - name: Checkout wolfSSL
+        if: matrix.product == 'wolftpm'
+        uses: actions/checkout@v4
+        with:
+          repository: wolfSSL/wolfssl
+          path: wolfssl
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential autoconf automake libtool \
+              pkg-config
+
+      - name: Copy share into the product
+        run: |
+          python3 tooling/tools/wolfssl-compliance-tooling-sync \
+            --src tooling \
+            --dest product
+
+      - name: Fetch the wolfBoot wolfSSL submodule
+        if: matrix.product == 'wolfboot'
+        working-directory: product
+        run: git submodule update --init --depth 1 -- lib/wolfssl
+
+      - name: Generate the wolfBoot SBOM
+        if: matrix.product == 'wolfboot'
+        working-directory: product
+        run: |
+          cp config/examples/sim.config .config
+          make sbom
+
+      - name: Build and install wolfSSL
+        if: matrix.product == 'wolftpm'
+        working-directory: wolfssl
+        run: |
+          autoreconf -ivf
+          ./configure --enable-wolftpm --enable-pkcallbacks \
+              --prefix="$GITHUB_WORKSPACE/wolfssl-install"
+          make -j"$(nproc)"
+          make install
+
+      - name: Configure and build wolfTPM
+        if: matrix.product == 'wolftpm'
+        working-directory: product
+        run: |
+          autoreconf -ivf
+          ./configure --enable-swtpm --disable-fwtpm --disable-examples \
+              --with-wolfcrypt="$GITHUB_WORKSPACE/wolfssl-install"
+          make -j"$(nproc)"
+
+      - name: Generate the wolfTPM SBOM
+        if: matrix.product == 'wolftpm'
+        working-directory: product
+        run: make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
+
+      - name: Validate the SBOM
+        working-directory: product
+        env:
+          NAME_PREFIX: ${{ matrix.name-prefix }}
+        run: |
+          shopt -s nullglob
+          files=("${NAME_PREFIX}"-*.cdx.json "${NAME_PREFIX}"-*.spdx.json)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "ERROR: no SBOM files matched ${NAME_PREFIX}-*.cdx.json or ${NAME_PREFIX}-*.spdx.json." >&2
+            exit 1
+          fi
+          python3 tools/sbom/validate_sbom.py \
+            --name-prefix "$NAME_PREFIX" \
+            "${files[@]}"
+
+      - name: Assert no host path leak
+        working-directory: product
+        env:
+          NAME_PREFIX: ${{ matrix.name-prefix }}
+        run: |
+          shopt -s nullglob
+          files=("${NAME_PREFIX}"-*.cdx.json "${NAME_PREFIX}"-*.spdx.json)
+          # A published SBOM must not contain build-machine absolute paths.
+          # grep exit 0 = match (fail), 1 = clean, >=2 = real error.
+          set +e
+          out="$(grep -REn '"/(home|Users|root)/' "${files[@]}")"
+          rc=$?
+          if [ "$rc" -eq 0 ]; then
+            echo "ERROR: absolute host path found in SBOM:" >&2
+            echo "$out" >&2
+            exit 1
+          elif [ "$rc" -ne 1 ]; then
+            echo "ERROR: could not scan SBOM outputs." >&2
+            exit 1
+          fi
+          echo "OK: no host path leak."
+
+      - name: Upload SBOM
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-canary-${{ matrix.product }}
+          path: |
+            product/${{ matrix.name-prefix }}-*.cdx.json
+            product/${{ matrix.name-prefix }}-*.spdx.json
+          if-no-files-found: error
