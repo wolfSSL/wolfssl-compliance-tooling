@@ -13,6 +13,7 @@ into a product at `tools/sbom/`, together with the pin files (`VERSION` and
 | `validate_sbom.py` | Structural validator for CI (`--name-prefix`). |
 | `frontends/compdb_sbom.py` | Extractor for any `compile_commands.json`. |
 | `frontends/iar_sbom.py` | Extractor for an IAR Embedded Workbench `.ewp`. |
+| `frontends/included_sources.py` | Finds the source files a compile command compiles in through `#include` (`compdb_sbom.py --included-sources`). |
 | `frontends/zephyr_sbom.py` | Extractor for a Zephyr module `CMakeLists.txt`. |
 | `build/sbom.mk` | Shared plain-Make fragment and `wolfssl_compliance_tooling_sbom_rule` macro. |
 | `build/sbom.cmake` | Shared CMake helper: `wolfssl_compliance_tooling_add_sbom()`. |
