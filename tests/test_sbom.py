@@ -244,6 +244,30 @@ def unit_tests():
         check(r.returncode != 0 and "WOLFSSL_USER_SETTINGS" in r.stderr,
               "user-settings requires WOLFSSL_USER_SETTINGS")
 
+    print("[unit] checksum source")
+    with tempfile.TemporaryDirectory() as d:
+        lib = os.path.join(d, "lib.a")
+        with open(lib, "wb") as f:
+            f.write(b"x")
+        srcs = os.path.join(d, "srcs.txt")
+        with open(srcs, "w") as f:
+            f.write("a.c\n")
+        base = [sys.executable, driver_py, "--name", "selftest",
+                "--version", "1.0.0", "--cflags=-DHAVE_AES"]
+        r = subprocess.run(base + ["--lib", lib, "--srcs-file", srcs],
+                           capture_output=True, text=True)
+        check(r.returncode != 0
+              and "pass one of --lib or --srcs-file" in r.stderr,
+              "lib and srcs-file together are rejected")
+        r = subprocess.run(base + ["--no-artifact-hash", "--lib", lib],
+                           capture_output=True, text=True)
+        check(r.returncode != 0 and "stands alone" in r.stderr,
+              "no-artifact-hash rejects --lib")
+        r = subprocess.run(base + ["--no-artifact-hash", "--srcs-file", srcs],
+                           capture_output=True, text=True)
+        check(r.returncode != 0 and "stands alone" in r.stderr,
+              "no-artifact-hash rejects --srcs-file")
+
 
 def find_gen_sbom(explicit):
     if explicit and os.path.isfile(explicit):
@@ -389,12 +413,17 @@ def integration_tests(gen_sbom):
               "omitted --document-namespace is not forwarded")
         check("--lib" in argv, "the library checksum source is still forwarded")
 
-        # --lib names the as-built artifact. gen-sbom accepts one checksum
-        # source, so the driver must not forward --lib with --no-artifact-hash.
+        # --no-artifact-hash is the checksum source and stands alone.
+        # gen-sbom rejects it together with --lib or --srcs-file.
+        r = run_driver(d, stub, [
+            "--lib", lib, "--srcs-file", srcs, "--cflags=-DHAVE_AES"])
+        check(r.returncode != 0
+              and "pass one of --lib or --srcs-file" in r.stderr,
+              "lib and srcs-file together are rejected\n" + r.stderr)
         if os.path.isfile(argv_path):
             os.remove(argv_path)
         r = run_driver(d, stub, [
-            "--lib", lib, "--no-artifact-hash", "--cflags=-DHAVE_AES",
+            "--no-artifact-hash", "--cflags=-DHAVE_AES",
             "--cdx-out", "nah.cdx.json", "--spdx-out", "nah.spdx.json"],
             env=env)
         check(r.returncode == 0, "no-artifact-hash reaches the generator\n"
@@ -403,8 +432,13 @@ def integration_tests(gen_sbom):
         if os.path.isfile(argv_path):
             argv = open(argv_path, encoding="utf-8").read().splitlines()
         check("--no-artifact-hash" in argv, "--no-artifact-hash is forwarded")
-        check("--lib" not in argv,
-              "--lib is not a second checksum source")
+        check("--lib" not in argv and "--srcs-file" not in argv,
+              "no-artifact-hash does not forward a second checksum source")
+        r = run_driver(d, stub, [
+            "--lib", lib, "--no-artifact-hash", "--cflags=-DHAVE_AES"],
+            env=env)
+        check(r.returncode != 0 and "stands alone" in r.stderr,
+              "no-artifact-hash rejects --lib\n" + r.stderr)
 
         settings = os.path.join(d, "settings.h")
         with open(settings, "w", encoding="utf-8") as f:
