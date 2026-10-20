@@ -110,7 +110,11 @@ jobs:
       - name: Generate the wolfTPM SBOM
         if: matrix.product == 'wolftpm'
         working-directory: product
-        run: make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
+        run: |
+          # sbom.am checks for pyspdxtools before it runs gen-sbom.
+          python3 -m pip install --user 'spdx-tools==0.8.*'
+          export PATH="$HOME/.local/bin:$PATH"
+          make sbom WOLFSSL_DIR="$GITHUB_WORKSPACE/wolfssl"
 
       - name: Validate the SBOM
         working-directory: product
