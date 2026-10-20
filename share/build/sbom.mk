@@ -193,5 +193,10 @@ $(1): $($(2)PREREQS)
 	    $(if $($(2)SPDX_OUT),--spdx-out "$($(2)SPDX_OUT)")
 endef
 
+# Products vendored before the rename still call wolfglass_sbom_rule.
+# Keep that name so a sync does not break their Makefile.
+# Use a recursive reference, not $(value): $(call) must expand $(1) and $(2).
+wolfglass_sbom_rule = $(wolfssl_compliance_tooling_sbom_rule)
+
 SBOM_TARGET ?= sbom
 $(eval $(call wolfssl_compliance_tooling_sbom_rule,$(SBOM_TARGET),SBOM_))
