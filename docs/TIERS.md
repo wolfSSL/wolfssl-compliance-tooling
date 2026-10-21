@@ -110,6 +110,7 @@ a tree.
 | wolfEngine | `A ✅` (autotools only) | `LIB` (dep wolfSSL/OpenSSL) | include/config.h | ✔ |
 | wolfCLU | `A ✅` | `LIB` (app; dep wolfSSL) | user_settings (winvs) | ✔ |
 | wolfSCEP | `A ✅` (autotools only) | `LIB` (dep wolfSSL) | product-local | ✔ |
+| wolfCert | `A ✅` `C ✅` `ZE ✅` | `LIB` (dep wolfSSL); Zephyr `SRC` | wolfcert/options.h / user_settings | ✔ (wolfCert PR #57; replaces wolfSCEP) |
 | wolfTPM | `A ✅` `C ✅` `ZE ✅` `ESP ✅` | `LIB` | wolftpm user_settings | ✔ |
 | wolfMQTT | `A ✅` `C ✅` `ZE ✅` `ESP ✅` `GEN(Arduino) ○` | `LIB` | wolfmqtt/options.h | ✔ |
 | wolfPKCS11 | `A ▲` `C ▲` | `LIB` (dep wolfSSL) | user_settings | ✘ not in this tree |

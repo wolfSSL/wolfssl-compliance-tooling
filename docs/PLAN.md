@@ -110,6 +110,7 @@ matrix, the two axes, the as-built constraint, and the dictionary. Treat
 - wolfEngine (autotools only; also OpenSSL).
 - wolfCLU (hashes the wolfssl binary).
 - wolfSCEP (autotools only; GPLv2-or-later).
+- wolfCert (autotools, CMake and Zephyr; GPLv3-or-later; replaces wolfSCEP).
 - wolfTPM (autotools and CMake).
 - wolfMQTT (autotools and CMake).
 - wolfPKCS11 (not in this workspace; verify at the source).
