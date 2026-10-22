@@ -15,13 +15,17 @@ Options:
   --subdir NAME   Vendored path inside the product. Default: tools/sbom.
   --src PATH      wolfssl-compliance-tooling repository root. Default: derived from this script.
   --check         Do not copy. Report drift and exit non-zero if any file
-                  differs. Use this in a product's CI drift check.
+                  differs, lost or gained its executable bit, or is no longer
+                  in share/. Use this in a product's CI drift check.
+  --prune         When syncing, delete vendored files that are no longer in
+                  share/. Without it they are only reported.
 """
 
 import argparse
 import filecmp
 import os
 import shutil
+import stat
 import subprocess
 import sys
 
@@ -37,6 +41,32 @@ def iter_share_files(share_dir):
                 continue
             full = os.path.join(root, name)
             yield full, os.path.relpath(full, share_dir)
+
+
+def stale_files(dest_root, share_rels):
+    """Vendored files and directory symlinks that share/ no longer has."""
+    pins = {"VERSION", ".wolfssl-compliance-tooling-rev"}
+    share_dirs = {os.path.dirname(rel) for rel in share_rels}
+    for d in list(share_dirs):
+        while d:
+            share_dirs.add(d)
+            d = os.path.dirname(d)
+    stale = []
+    for _, rel in iter_share_files(dest_root):
+        if rel not in share_rels and rel not in pins:
+            stale.append(rel)
+    # os.walk does not descend into directory symlinks, so list them here.
+    for root, dirs, _ in os.walk(dest_root):
+        for name in dirs:
+            full = os.path.join(root, name)
+            rel = os.path.relpath(full, dest_root)
+            if os.path.islink(full) and rel not in share_dirs:
+                stale.append(rel)
+    return sorted(stale)
+
+
+def is_executable(path):
+    return bool(os.stat(path).st_mode & stat.S_IXUSR)
 
 
 def is_inside(base, path):
@@ -63,6 +93,7 @@ def main():
     ap.add_argument("--subdir", default="tools/sbom")
     ap.add_argument("--src", default=DEFAULT_SRC)
     ap.add_argument("--check", action="store_true")
+    ap.add_argument("--prune", action="store_true")
     args = ap.parse_args()
 
     share_dir = os.path.join(args.src, "share")
@@ -85,6 +116,7 @@ def main():
         sys.exit(f"ERROR: --subdir {args.subdir!r} escapes --dest; it must "
                  f"resolve to a path inside {args.dest!r}.")
     files = sorted(iter_share_files(share_dir), key=lambda p: p[1])
+    share_rels = {rel for _, rel in files}
 
     if args.check:
         drift = []
@@ -92,6 +124,11 @@ def main():
             dst = os.path.join(dest_root, rel)
             if not os.path.isfile(dst) or not filecmp.cmp(src, dst, shallow=False):
                 drift.append(rel)
+            elif is_executable(src) != is_executable(dst):
+                drift.append(f"{rel} (executable bit)")
+        if os.path.isdir(dest_root):
+            drift += [f"{rel} (not in share/)"
+                      for rel in stale_files(dest_root, share_rels)]
         if os.path.isfile(version_file):
             dst_v = os.path.join(dest_root, "VERSION")
             if not os.path.isfile(dst_v) or not filecmp.cmp(
@@ -110,7 +147,8 @@ def main():
                   file=sys.stderr)
             for rel in drift:
                 print(f"  {rel}", file=sys.stderr)
-            print("Re-run wolfssl-compliance-tooling-sync to update.", file=sys.stderr)
+            print("Re-run wolfssl-compliance-tooling-sync --prune to update.",
+                  file=sys.stderr)
             sys.exit(1)
         print("OK: vendored wolfssl-compliance-tooling files match share/.")
         return
@@ -141,6 +179,18 @@ def main():
         with open(os.path.join(dest_root, ".wolfssl-compliance-tooling-rev"), "w",
                   encoding="utf-8") as f:
             f.write(source_rev + "\n")
+    stale = stale_files(dest_root, share_rels)
+    for rel in stale:
+        if args.prune:
+            os.remove(os.path.join(dest_root, rel))
+            print(f"Pruned {rel}")
+        else:
+            print(f"WARNING: {rel} is no longer in share/; re-run with --prune "
+                  f"to delete it.", file=sys.stderr)
+    if args.prune:
+        for root, _, _ in os.walk(dest_root, topdown=False):
+            if root != dest_root and not os.listdir(root):
+                os.rmdir(root)
     print(f"Synced {count} file(s) into {dest_root}")
     if source_rev:
         print(f"Pinned wolfssl-compliance-tooling revision: {source_rev}")

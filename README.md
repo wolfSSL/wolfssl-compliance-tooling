@@ -166,7 +166,8 @@ commit they copied. This is deliberate over a git submodule: a submodule
 breaks source tarballs, needs network access at clone time, and adds files to
 what should be a frozen, air-gapped-buildable tree. A CI drift check
 (`wolfssl-compliance-tooling-sync --check`) confirms a product's vendored copy still matches
-the source.
+the source, including executable bits and files that were removed upstream.
+Re-sync with `--prune` to delete those removed files.
 
 ## Using wolfssl-compliance-tooling
 
