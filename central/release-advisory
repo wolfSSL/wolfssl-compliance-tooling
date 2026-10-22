@@ -167,6 +167,11 @@ def print_publish_manual(release, out_dir, out_root, gpg_key):
     print(f'Copy {tree} onto the website provider directory. '
           'Add these files to the directory that is already there. '
           'A full replacement removes the product that shipped earlier.')
+    print('--keep merges this run with the index.txt already in that tree. '
+          'advisories/publish is gitignored, so a fresh clone has no index. '
+          'Download the live provider directory with csaf-fetch into '
+          '--out-root before publish. Copying this index up from an empty '
+          'tree drops every advisory that was only on the website.')
     print(f'Update the GitHub release for wolfSSL {release} '
           f'with the bundle in {out_dir}.')
     if gpg_key:

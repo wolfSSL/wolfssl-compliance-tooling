@@ -272,6 +272,17 @@ def _merge_kept(csaf_root, prior_index, prior_changes, new_index, new_changes,
     return index, rows
 
 
+def _clear_signature(path):
+    """Remove a detached signature for a file this unsigned run rewrote.
+
+    --keep does not reset the tree. A previous .asc would otherwise sit
+    beside the new bytes and no longer match them.
+    """
+    asc = path.with_name(path.name + '.asc')
+    if asc.is_file():
+        asc.unlink()
+
+
 def _drop_unindexed(csaf_root, indexed):
     """Remove a TLP document that is not in the index, and its sidecars."""
     for tlp in ('white', 'green', 'amber', 'red'):
@@ -331,6 +342,11 @@ def main():
     if args.keep:
         prior_index = _read_index_lines(csaf_root)
         prior_changes = _read_changes(csaf_root)
+        if not prior_index:
+            print('WARNING: --keep found no index.txt. This run is the '
+                  'whole catalogue. Download the published tree into '
+                  '--out-root first if that directory should already '
+                  'contain it.', file=sys.stderr)
     else:
         _reset_tree(csaf_root)
 
@@ -390,6 +406,8 @@ def main():
         _sha_files(dest)
         if signer is not None:
             signer(dest)
+        else:
+            _clear_signature(dest)
 
         index_lines.append(rel)
         released = doc['document']['tracking'].get('current_release_date', timestamp)
@@ -418,6 +436,8 @@ def main():
     _sha_files(md_path)
     if signer is not None:
         signer(md_path)
+    else:
+        _clear_signature(md_path)
 
     signed = 'signed' if signer is not None else 'UNSIGNED'
     print(f'Published {len(csaf_docs)} CSAF document(s) [{signed}] to {csaf_root}')
