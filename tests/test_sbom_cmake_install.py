@@ -237,6 +237,36 @@ wolfssl_compliance_tooling_add_sbom(
         self.assertNotIn("--dep-openssl", text)
         self.assertNotIn("--crypto-only", text)
 
+    def test_targets_with_lib_fails_at_configure(self):
+        for n, (targets, lib, error) in enumerate((
+                ("TARGETS x", "${CMAKE_CURRENT_BINARY_DIR}/libx.a",
+                 "set TARGETS or LIB, not both"),
+                ("TARGETS x", "FOO_LIB-NOTFOUND", "LIB was not found"),
+                ("", "FOO_LIB-NOTFOUND", "LIB was not found"))):
+            with self.subTest(targets=targets, lib=lib):
+                src = self.dir / f"src{n}"
+                src.mkdir()
+                (src / "x.c").write_text("int x(void) { return 1; }\n")
+                (src / "LICENSE").write_text("demo\n")
+                (src / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(sbomtest C)
+add_library(x STATIC x.c)
+include("{BUILD / "sbom.cmake"}")
+wolfssl_compliance_tooling_add_sbom(
+    NAME t
+    VERSION 1
+    {targets}
+    LIB {lib}
+    LICENSE ${{CMAKE_CURRENT_SOURCE_DIR}}/LICENSE)
+""")
+                result = run([
+                    CMAKE, "-S", str(src), "-B", str(self.dir / f"build{n}"),
+                    "-G", "Unix Makefiles",
+                ])
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(error, result.stderr)
+
     def test_wolftpm_style_install_depends_on_the_public_target(self):
         # The helper target is not the public sbom target. install-sbom
         # must wait for the target that writes the tag-value file.

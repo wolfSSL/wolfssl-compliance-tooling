@@ -143,6 +143,7 @@ $(1): $($(2)PREREQS)
 	else \
 	    test -n "$(strip $($(2)SRCS))$($(2)LIB)" || \
 	        { echo "ERROR: set $(2)SRCS or $(2)LIB"; exit 1; }; \
+	    $(if $(and $(strip $($(2)SRCS)),$($(2)LIB)),{ echo "ERROR: set $(2)SRCS or $(2)LIB but not both"; exit 1; };) \
 	fi
 	@set -e; \
 	if [ -n "$(strip $($(2)SRCS))" ]; then \

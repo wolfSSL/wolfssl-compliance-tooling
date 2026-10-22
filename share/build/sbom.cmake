@@ -18,6 +18,9 @@
 #       LICENSE       ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
 #   )
 #
+# Composition, one of: TARGETS <tgt>... (hash the source set), LIB <path>
+# (hash the built library), or NO_ARTIFACT_HASH alone.
+#
 # Optional arguments:
 #   SBOM_GEN <path>   Path to gen-sbom (default: driver auto-discovery).
 #   GEN_SBOM <path>   Legacy alias for SBOM_GEN.
@@ -117,13 +120,20 @@ function(wolfssl_compliance_tooling_add_sbom)
     if(NOT SB_NAME)
         message(FATAL_ERROR "wolfssl_compliance_tooling_add_sbom: NAME is required")
     endif()
+    if(SB_LIB MATCHES "-NOTFOUND$")
+        message(FATAL_ERROR
+            "wolfssl_compliance_tooling_add_sbom: LIB was not found (${SB_LIB})")
+    endif()
     if(SB_NO_ARTIFACT_HASH)
-        if(SB_TARGETS OR SB_LIB)
+        if(SB_TARGETS OR NOT "${SB_LIB}" STREQUAL "")
             message(FATAL_ERROR
                 "wolfssl_compliance_tooling_add_sbom: NO_ARTIFACT_HASH stands "
                 "alone. Do not pass TARGETS or LIB.")
         endif()
-    elseif(NOT SB_TARGETS AND NOT SB_LIB)
+    elseif(SB_TARGETS AND NOT "${SB_LIB}" STREQUAL "")
+        message(FATAL_ERROR
+            "wolfssl_compliance_tooling_add_sbom: set TARGETS or LIB, not both")
+    elseif(NOT SB_TARGETS AND "${SB_LIB}" STREQUAL "")
         message(FATAL_ERROR "wolfssl_compliance_tooling_add_sbom: set TARGETS or LIB")
     endif()
     if(NOT SB_ROOT)
@@ -190,7 +200,7 @@ function(wolfssl_compliance_tooling_add_sbom)
             file(GENERATE OUTPUT ${_srcs_file} CONTENT "${_srcs_nl}\n")
             list(APPEND _cmd --srcs-file ${_srcs_file})
         endif()
-        if(SB_LIB)
+        if(NOT "${SB_LIB}" STREQUAL "")
             list(APPEND _cmd --lib ${SB_LIB})
         endif()
     endif()

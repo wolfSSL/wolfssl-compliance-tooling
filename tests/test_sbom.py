@@ -20,6 +20,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -267,6 +268,22 @@ def unit_tests():
                            capture_output=True, text=True)
         check(r.returncode != 0 and "stands alone" in r.stderr,
               "no-artifact-hash rejects --srcs-file")
+        r = subprocess.run(base, capture_output=True, text=True)
+        check(r.returncode != 0
+              and "--lib, --srcs-file or --no-artifact-hash" in r.stderr,
+              "a missing checksum source names all three options")
+
+        make = shutil.which("make")
+        if make:
+            with open(os.path.join(d, "Makefile"), "w") as f:
+                f.write("SBOM_NAME = t\nSBOM_VERSION = 1\n"
+                        "SBOM_DRIVER = false\n"
+                        f"include {os.path.join(SHARE, 'build', 'sbom.mk')}\n")
+            r = subprocess.run([make, "-C", d, "sbom", "SBOM_SRCS=a.c",
+                                "SBOM_LIB=" + lib],
+                               capture_output=True, text=True)
+            check(r.returncode != 0 and "but not both" in r.stdout + r.stderr,
+                  "sbom.mk rejects SBOM_SRCS with SBOM_LIB")
 
 
 def find_gen_sbom(explicit):
