@@ -18,6 +18,7 @@ so one run must leave the other products' files in the provider tree.
 
 import argparse
 import pathlib
+import shlex
 import shutil
 import subprocess
 import sys
@@ -52,8 +53,10 @@ def _pin_ids(releases_root, release):
         sys.exit(f'ERROR: pin file not found: {pin}')
     ids = []
     for ln in pin.read_text().splitlines():
-        line = ln.strip()
-        if line and not line.startswith('#'):
+        # Same rule as advisory-completeness.load_cve_list: '#' starts a
+        # comment, including a comment after the id on the same line.
+        line = ln.split('#', 1)[0].strip()
+        if line:
             ids.append(line)
     if not ids:
         sys.exit(f'ERROR: pin file is empty: {pin}')
@@ -84,13 +87,17 @@ def draft_argv(py, release, changelog, overlay, replace, dry_run):
     return argv
 
 
-def print_draft_stop(release, changelog):
+def print_draft_stop(release, changelog, overlay):
+    parts = [sys.executable, str(_HERE / 'release-advisory'), 'publish',
+             '--release', release, '--changelog', changelog]
+    if overlay:
+        parts.extend(['--overlay', overlay])
+    shown = ' '.join(shlex.quote(part) for part in parts)
     print()
     print('Stop here. Read every REVIEW line.')
     print('advisory-completeness does not judge the determination.')
     print('When the overlay is right, run:')
-    print(f'  {sys.executable} {_HERE / "release-advisory"} publish '
-          f'--release {release} --changelog {changelog}')
+    print(f'  {shown}')
 
 
 def completeness_argv(py, release, changelog, overlay, records_dir,
@@ -167,9 +174,10 @@ def print_publish_manual(release, out_dir, out_root, gpg_key):
               'and the .asc files. A separate gpg --armor --detach-sign '
               'does not update provider-metadata.json.')
     else:
-        print('This tree is unsigned. Sign it with '
-              'csaf-publish --gpg-key and the full 40-hex primary '
-              'fingerprint, then run csaf-verify --fingerprint. '
+        print('This tree is unsigned. Rerun release-advisory publish '
+              'with --gpg-key and the full 40-hex primary fingerprint. '
+              'Do not run csaf-publish --gpg-key by itself. Without '
+              '--keep it deletes the provider tree. '
               'A separate gpg --armor --detach-sign does not update '
               'provider-metadata.json.')
 
@@ -178,11 +186,15 @@ def cmd_draft(args):
     _reject_other_product(args.product)
     _run(draft_argv(sys.executable, args.release, args.changelog, args.overlay,
                     args.replace, args.dry_run))
-    print_draft_stop(args.release, args.changelog)
+    print_draft_stop(args.release, args.changelog, args.overlay)
 
 
 def cmd_publish(args):
     _reject_other_product(args.product)
+    # advisory-completeness skips the pin check when this path is not a
+    # file. Reject it here so a typo cannot publish.
+    if not pathlib.Path(args.changelog).is_file():
+        sys.exit(f'ERROR: changelog not found: {args.changelog}')
     ids = _pin_ids(args.releases_root, args.release)
     _run(completeness_argv(
         sys.executable, args.release, args.changelog, args.overlay,
