@@ -51,7 +51,7 @@ def entry_tokens(entry):
 def macro_name(d):
     """Macro name of a -D/-U operand: the text before the first '=' or '(',
     so a function-like 'F(a)=a' is keyed as 'F'."""
-    return re.split(r'[=(]', d, 1)[0]
+    return re.split(r'[=(]', d, maxsplit=1)[0]
 
 
 def extract_defines(tokens):
