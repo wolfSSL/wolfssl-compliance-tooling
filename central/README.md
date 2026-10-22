@@ -71,9 +71,17 @@ These tools run for wolfSSL only. Do not vendor them into a product.
 
       python3 central/csaf-fetch \
           --url https://www.wolfssl.com/.well-known/csaf \
-          --out /tmp/csaf \
-          --vex
+          --out /tmp/csaf
       python3 central/csaf-verify --root /tmp/csaf
+
+  Run that pair without `--vex`. No `.cdx.json` files are published yet, so
+  `--vex` stops on the first missing file and `csaf-verify` never runs.
+  Check VEX on its own:
+
+      python3 central/csaf-fetch \
+          --url https://www.wolfssl.com/.well-known/csaf \
+          --out /tmp/csaf-vex \
+          --vex
 
   `--vex` also fetches `name.cdx.json` beside each CSAF file. The command
   fails when that file is missing, when its CVE ids differ, or when a CVSS
