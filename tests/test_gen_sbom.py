@@ -605,6 +605,11 @@ class TestParseOptionsH(unittest.TestCase):
         ))
         self.assertEqual(pairs['HAVE_X'], '2')
 
+    def test_missing_file_exits(self):
+        with self.assertRaises(SystemExit) as cm:
+            gs.parse_options_h('/no/such/options.h')
+        self.assertIn('/no/such/options.h', str(cm.exception))
+
     def test_filters_compiler_internals_from_dm_e_dump(self):
         # The no-pcpp escape hatch (`$CC -dM -E -include settings.h ...`)
         # produces a defines file containing hundreds of host/compiler
