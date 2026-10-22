@@ -46,6 +46,10 @@ Config (choose one):
 Dependency (for linkers and bindings): `--dep-wolfssl`, `--dep-openssl`, and
 `--dep-version` are passed through only when the generator supports them.
 
+Copyright: the line reads `Copyright (C) <start>-<build year> <supplier>`.
+`--copyright-start` (Make, autotools: `SBOM_COPYRIGHT_START`; CMake:
+`COPYRIGHT_START`) sets the first year, which defaults to 2006.
+
 The driver captures macros with the host compiler, so the SBOM is reproducible
 across toolchains. It scrubs absolute host paths from the captured macros unless
 you pass `--no-scrub`.
