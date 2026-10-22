@@ -59,6 +59,7 @@ jobs:
             tests/test_sbom_identity.py \
             tests/test_low_findings.py \
             tests/test_iar_sbom.py \
+            tests/test_sbom_cmake_install.py \
             tests/test_wolfssl_compliance_tooling_sync.py \
             tests/test_sbom_autotools.py
 
@@ -79,6 +80,9 @@ jobs:
 
       - name: Run IAR frontend tests
         run: python -m unittest tests/test_iar_sbom.py
+
+      - name: Run CMake SBOM install tests
+        run: python -m unittest tests/test_sbom_cmake_install.py
 
       - name: Run wolfssl-compliance-tooling-sync tests
         run: python -m unittest tests/test_wolfssl_compliance_tooling_sync.py

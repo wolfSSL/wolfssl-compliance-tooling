@@ -68,6 +68,14 @@ A product does not copy logic. It describes itself:
   describes a configuration nobody built.
 - CMake: `include(tools/sbom/build/sbom.cmake)` and call `wolfssl_compliance_tooling_add_sbom()`
   with `NAME`, `VERSION_FILE`, `VERSION_MACRO`, `TARGETS`, `DEFS`, `LICENSE`.
+  The same call adds `install-sbom` and `uninstall-sbom`. They copy the
+  CycloneDX and SPDX files to `CMAKE_INSTALL_FULL_DOCDIR` (or
+  `<prefix>/share/doc/<NAME>`) and read `DESTDIR` when the target runs.
+  Pass `CDX_OUT` / `SPDX_OUT`
+  when the file name is not `<name>-<version>` (wolfBoot's config tag).
+  wolfTPM writes the tag-value file in a later `sbom` target: pass
+  `NO_INSTALL` and call `wolfssl_compliance_tooling_add_sbom_install(DEPENDS sbom TV ...)`
+  after that target exists.
   `SBOM_GEN` is the canonical generator override; `GEN_SBOM` remains a legacy
   alias for compatibility.
 - Autotools: set the `SBOM_*` variables and `include tools/sbom/sbom.am`.
