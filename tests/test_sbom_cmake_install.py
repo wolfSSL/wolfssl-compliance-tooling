@@ -326,6 +326,21 @@ wolfssl_compliance_tooling_add_sbom(
         self.assertIn("install-sbom-extra", text)
         self.assertIn("uninstall-sbom-extra", text)
 
+    def test_macro_prefix_reaches_the_driver(self):
+        build = self._configure(f"""
+cmake_minimum_required(VERSION 3.16)
+project(sbomtest NONE)
+include("{BUILD / "sbom.cmake"}")
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    LIB ${{CMAKE_CURRENT_BINARY_DIR}}/libdemo.a
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h
+    LICENSE ${{CMAKE_CURRENT_SOURCE_DIR}}/LICENSE
+    MACRO_PREFIX WOLFCERT_ HAVE_)
+""")
+        text = self._build_text(build)
+        self.assertIn("--macro-prefix WOLFCERT_ --macro-prefix HAVE_", text)
 
 if __name__ == "__main__":
     unittest.main()

@@ -67,6 +67,8 @@
 #                     them must contain user_settings.h.
 #   USER_SETTINGS_DEFINE <NAME[=VALUE]>...  Predefines for that preprocess.
 #                     Include WOLFSSL_USER_SETTINGS.
+#   MACRO_PREFIX <prefix>...  Record only the captured macros whose name
+#                     starts with one of these prefixes, e.g. WOLFCERT_.
 #   TV_OUT <path>     SPDX tag-value file, when a later step writes one.
 #   INSTALL_DIR <dir> Doc directory for install-sbom. Default:
 #                     CMAKE_INSTALL_FULL_DOCDIR, else
@@ -111,7 +113,7 @@ function(wolfssl_compliance_tooling_add_sbom)
              LICENSE_OVERRIDE LICENSE_TEXT
              INSTALL_DIR INSTALL_DEPENDS INSTALL_TARGET UNINSTALL_TARGET)
     set(_multi TARGETS DEFS DEP_VERSION INCLUDE_DIRS
-             USER_SETTINGS_INCLUDE USER_SETTINGS_DEFINE)
+             USER_SETTINGS_INCLUDE USER_SETTINGS_DEFINE MACRO_PREFIX)
     cmake_parse_arguments(SB "${_opts}" "${_one}" "${_multi}" ${ARGN})
 
     if(NOT SB_NAME)
@@ -274,6 +276,9 @@ function(wolfssl_compliance_tooling_add_sbom)
     if(NOT "${SB_CRYPTO_ONLY}" STREQUAL "")
         list(APPEND _cmd --crypto-only "${SB_CRYPTO_ONLY}")
     endif()
+    foreach(_pfx IN LISTS SB_MACRO_PREFIX)
+        list(APPEND _cmd --macro-prefix ${_pfx})
+    endforeach()
     foreach(_dv IN LISTS SB_DEP_VERSION)
         list(APPEND _cmd --dep-version ${_dv})
     endforeach()
