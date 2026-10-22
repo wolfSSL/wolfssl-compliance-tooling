@@ -262,7 +262,8 @@ def main():
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
-    # Composition (at least one of --lib / --srcs-file; --source-only needs srcs).
+    # Composition (one of --lib / --srcs-file / --no-artifact-hash;
+    # --source-only needs srcs).
     ap.add_argument("--lib", default="",
                     help="Path to the built library to hash (tier R/L/S).")
     ap.add_argument("--srcs-file", default="",
@@ -367,7 +368,8 @@ def main():
     elif args.lib and args.srcs_file:
         sys.exit("ERROR: pass one of --lib or --srcs-file.")
     elif not args.lib and not args.srcs_file:
-        sys.exit("ERROR: pass at least one of --lib or --srcs-file.")
+        sys.exit("ERROR: pass one of --lib, --srcs-file or "
+                 "--no-artifact-hash.")
     if args.source_only and not args.srcs_file:
         sys.exit("ERROR: --source-only needs --srcs-file.")
     if args.srcs_file and not os.path.isfile(args.srcs_file):

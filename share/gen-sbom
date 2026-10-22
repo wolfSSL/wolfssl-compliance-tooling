@@ -895,8 +895,7 @@ def parse_options_h(path):
         with open(path) as f:
             text = f.read()
     except OSError as e:
-        print(f"WARNING: cannot read options.h {path}: {e}", file=sys.stderr)
-        return []
+        sys.exit(f"ERROR: cannot read --options-h {path}: {e}")
 
     defines = {}
     for m in re.finditer(r'^#define[ \t]+(\w+)(?:[ \t]+(.*))?$', text, re.MULTILINE):
