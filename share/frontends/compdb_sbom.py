@@ -13,6 +13,11 @@ CMake SBOM path:
   * Renesas e2studio / CCRX (via a build wrapper that records commands)
   * Xilinx SDK / Vitis      (via `bear -- make ...`)
 
+A source a file compiles in through #include, such as wolfSSL's
+src/ssl_api_*.c, is not an entry of its own. `--included-sources` adds those
+by rerunning the selected commands with -M, which needs a gcc- or clang-style
+compiler and runs the compilers the database names.
+
 The extracted sources + defines are handed to the shared driver (sbom-driver),
 so the resulting CycloneDX 1.6 / SPDX 2.3 SBOM is identical in shape to the Make,
 CMake, and IAR paths.
@@ -31,6 +36,8 @@ import sys
 import tempfile
 
 SRC_EXTS = ('.c', '.cc', '.cpp', '.cxx', '.s', '.asm')
+# Only these are preprocessed, so only these are rerun with -M.
+SCAN_EXTS = ('.c', '.cc', '.cpp', '.cxx', '.S')
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 # The shared driver is the sibling of this frontends/ directory.
@@ -46,6 +53,11 @@ def entry_tokens(entry):
         except ValueError:
             return entry['command'].split()
     return []
+
+
+def file_id(path):
+    st = os.stat(path)
+    return st.st_dev, st.st_ino
 
 
 def macro_name(d):
@@ -117,6 +129,10 @@ def main():
     ap.add_argument('--spdx-out', default=None)
     ap.add_argument('--srcs-out', default=None)
     ap.add_argument('--print-only', action='store_true')
+    ap.add_argument('--included-sources', action='store_true',
+                    help='Rerun the compile commands with -M and add the '
+                         'source files they #include. Runs the compilers '
+                         'the database names; needs one that supports -M.')
     args = ap.parse_args()
 
     if not os.path.isfile(args.compdb):
@@ -135,7 +151,7 @@ def main():
     # product must not pull an unrelated file (and its path) into the SBOM.
     root_abs = os.path.realpath(args.root) if args.root else None
 
-    srcs, defines, seen = [], set(), set()
+    srcs, defines, seen, selected = [], set(), set(), []
     for entry in db:
         fpath = entry.get('file')
         if not fpath:
@@ -158,18 +174,67 @@ def main():
             continue
         for d in extract_defines(entry_tokens(entry)):
             defines.add(d)
-        if fpath not in seen and os.path.isfile(fpath):
+        if not os.path.isfile(fpath):
+            continue
+        if fpath not in seen:
             seen.add(fpath)
             srcs.append(fpath)
+        ext = os.path.splitext(fpath)[1]
+        if ext in SCAN_EXTS or ext.lower() in SCAN_EXTS:
+            selected.append((fpath, entry))
 
     if not srcs:
         sys.exit("ERROR: no matching source files found in compilation database")
+
+    included = []
+    if args.included_sources:
+        sys.path.insert(0, SCRIPT_DIR)
+        from included_sources import ScanError, included_sources
+        try:
+            scan_root = root_abs or os.path.commonpath(
+                [os.path.dirname(s) for s in srcs])
+        except ValueError:
+            sys.exit("ERROR: sources share no common directory; pass --root")
+        known = {file_id(s) for s in srcs}
+        names = {os.path.basename(s): s for s in srcs}
+        scanned = set()
+        for fpath, entry in selected:
+            tokens = entry_tokens(entry)
+            key = (fpath, entry.get('directory'), tuple(tokens))
+            if key in scanned:
+                continue
+            scanned.add(key)
+            if not tokens:
+                sys.stderr.write(f"WARNING: no compile command for {fpath}; "
+                                 f"its #include'd sources are not scanned\n")
+                continue
+            try:
+                found = included_sources(
+                    tokens, entry.get('directory', os.getcwd()), fpath,
+                    scan_root, SRC_EXTS)
+            except ScanError as e:
+                sys.exit(f"ERROR: {e}")
+            for path in found:
+                if (not os.path.isfile(path) or file_id(path) in known
+                        or (inc and not any(r.search(path) for r in inc))
+                        or (exc and any(r.search(path) for r in exc))):
+                    continue
+                name = os.path.basename(path)
+                if name in names:
+                    sys.exit(f"ERROR: {path}, #include'd by {fpath}, has the "
+                             f"same basename as {names[name]}; --exclude "
+                             f"one of them")
+                known.add(file_id(path))
+                names[name] = path
+                included.append(path)
+        srcs += included
 
     defines = sorted(defines)
     cflags = ' '.join(f'-D{d}' for d in defines)
 
     if args.print_only:
-        print(f"# {len(srcs)} sources, {len(defines)} defines")
+        print(f"# {len(srcs)} sources ({len(included)} included), "
+              f"{len(defines)} defines")
         print("\n[defines]")
         for d in defines:
             print(f"  -D{d}")
@@ -204,7 +269,8 @@ def main():
     for inc in args.include_dir:
         cmd += ['--include-dir', inc]
 
-    print(f"compdb SBOM: {len(srcs)} sources, {len(defines)} defines")
+    print(f"compdb SBOM: {len(srcs)} sources ({len(included)} included), "
+          f"{len(defines)} defines")
     try:
         rc = subprocess.call(cmd)
     finally:
