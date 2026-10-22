@@ -304,6 +304,11 @@ def main():
                          "user_settings.h.")
     grp.add_argument("--source-only", action="store_true",
                      help="Source-inventory SBOM with no build-config macros.")
+    ap.add_argument("--macro-prefix", action="append", default=[],
+                    metavar="PREFIX",
+                    help="Record only configuration macros whose name starts "
+                         "with PREFIX (repeatable). Passed through only if "
+                         "the generator supports it.")
 
     # Identity.
     ap.add_argument("--name", required=True, help="Package name in the SBOM.")
@@ -486,6 +491,14 @@ def main():
         if args.dep_version and gen_sbom_supports(args.python, gen_sbom, "--dep-version"):
             for dv in args.dep_version:
                 cmd += ["--dep-version", dv]
+        if args.macro_prefix:
+            if gen_sbom_supports(args.python, gen_sbom, "--macro-prefix"):
+                for prefix in args.macro_prefix:
+                    cmd += ["--macro-prefix", prefix]
+            else:
+                print("NOTE: this gen-sbom has no --macro-prefix support; "
+                      "every captured macro will be recorded.",
+                      file=sys.stderr)
         if args.crypto_only and gen_sbom_supports(
                 args.python, gen_sbom, "--crypto-only"):
             cmd += ["--crypto-only", args.crypto_only]

@@ -20,6 +20,7 @@ import argparse
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -486,6 +487,57 @@ def integration_tests(gen_sbom):
               "user-settings include directory is forwarded")
         check("WOLFSSL_USER_SETTINGS" in argv,
               "WOLFSSL_USER_SETTINGS is forwarded")
+
+        r = run_driver(d, gen_sbom, [
+            "--lib", lib, "--cflags=-DHAVE_AES -DWOLFCERT_SCEP",
+            "--macro-prefix", "WOLFCERT_",
+            "--cdx-out", "pfx.cdx.json", "--spdx-out", "pfx.spdx.json"])
+        check(r.returncode == 0, "macro prefix generates\n" + r.stderr)
+        pfx = os.path.join(d, "pfx.cdx.json")
+        if r.returncode == 0 and os.path.isfile(pfx):
+            props = {p["name"] for p in json.load(
+                open(pfx, encoding="utf-8"))["metadata"]["component"]
+                ["properties"]}
+            check("wolfssl:build:WOLFCERT_SCEP" in props,
+                  "prefixed macro is recorded")
+            check("wolfssl:build:HAVE_AES" not in props,
+                  "unprefixed macro is dropped")
+        if os.path.isfile(argv_path):
+            os.remove(argv_path)
+        r = run_driver(d, stub, [
+            "--lib", lib, "--cflags=-DHAVE_AES", "--macro-prefix", "WOLFCERT_",
+            "--cdx-out", "stub2.cdx.json", "--spdx-out", "stub2.spdx.json"],
+            env=env)
+        argv = []
+        if os.path.isfile(argv_path):
+            argv = open(argv_path, encoding="utf-8").read().splitlines()
+        check(r.returncode == 0 and "--macro-prefix" not in argv,
+              "--macro-prefix is not forwarded to a generator without it")
+        check("no --macro-prefix support" in r.stderr,
+              "dropping --macro-prefix prints a note")
+
+        make = shutil.which("make")
+        if make:
+            mk_argv = os.path.join(d, "mk-argv.txt")
+            mk_driver = os.path.join(d, "mk-driver")
+            with open(mk_driver, "w") as f:
+                f.write(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{mk_argv}'\n")
+            os.chmod(mk_driver, 0o755)
+            with open(os.path.join(d, "Makefile"), "w") as f:
+                f.write("SBOM_NAME = t\nSBOM_VERSION = 1\n"
+                        f"SBOM_LIB = {lib}\nSBOM_DRIVER = {mk_driver}\n"
+                        "SBOM_MACRO_PREFIX = WOLFCERT_ HAVE_\n"
+                        f"include {os.path.join(SHARE, 'build', 'sbom.mk')}\n")
+            r = subprocess.run([make, "-C", d, "sbom"],
+                               capture_output=True, text=True)
+            argv = []
+            if os.path.isfile(mk_argv):
+                argv = open(mk_argv, encoding="utf-8").read().splitlines()
+            pairs = list(zip(argv, argv[1:]))
+            check(r.returncode == 0
+                  and ("--macro-prefix", "WOLFCERT_") in pairs
+                  and ("--macro-prefix", "HAVE_") in pairs,
+                  "sbom.mk forwards SBOM_MACRO_PREFIX\n" + r.stderr)
 
 
 def main():

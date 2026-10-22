@@ -29,6 +29,8 @@
 #                       Predefines for that preprocess, space-separated.
 #                       Include WOLFSSL_USER_SETTINGS.
 #   SBOM_SOURCE_ONLY = 1   Source-inventory SBOM with no build-config macros.
+#   SBOM_MACRO_PREFIX   Record only the captured macros whose name starts
+#                       with one of these prefixes, space-separated.
 #
 # Config, strongly recommended alongside SBOM_CFLAGS:
 #   SBOM_SETTINGS_H     Settings header -include'd during the capture, so the
@@ -214,6 +216,7 @@ $(1): $($(2)PREREQS)
 	    $(if $($(2)DEP_LIBZ),--dep-libz "$($(2)DEP_LIBZ)") \
 	    $(if $($(2)DOCUMENT_NAMESPACE),--document-namespace "$($(2)DOCUMENT_NAMESPACE)") \
 	    $(if $($(2)CRYPTO_ONLY),--crypto-only "$($(2)CRYPTO_ONLY)") \
+	    $(foreach p,$($(2)MACRO_PREFIX),--macro-prefix "$(p)") \
 	    $$$$dep_ver \
 	    $(if $(or $($(2)GEN),$(GEN_SBOM)),--gen-sbom "$(or $($(2)GEN),$(GEN_SBOM))") \
 	    $(if $($(2)CDX_OUT),--cdx-out "$($(2)CDX_OUT)") \
