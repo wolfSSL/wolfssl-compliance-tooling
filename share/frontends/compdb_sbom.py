@@ -66,6 +66,11 @@ def macro_name(d):
     return re.split(r'[=(]', d, maxsplit=1)[0]
 
 
+def define_value(d):
+    """A -D operand with the implicit '=1' of a bare -DNAME made explicit."""
+    return d if '=' in d else d + '=1'
+
+
 def extract_defines(tokens):
     """Net -D macros for one compile command, honouring a later -U that cancels
     an earlier -D of the same name (the compiler applies them in order, so a
@@ -102,8 +107,12 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('compdb', help='Path to compile_commands.json')
     ap.add_argument('--name', required=True, help='Package name for the SBOM.')
-    ap.add_argument('--include', action='append', default=[])
-    ap.add_argument('--exclude', action='append', default=[])
+    ap.add_argument('--include', action='append', default=[],
+                    help='Keep sources whose path matches this regex '
+                         '(re.search, repeatable).')
+    ap.add_argument('--exclude', action='append', default=[],
+                    help='Drop sources whose path matches this regex '
+                         '(re.search, repeatable).')
     ap.add_argument('--driver', default=DEFAULT_DRIVER,
                     help='Path to the shared sbom-driver.')
     ap.add_argument('--gen-sbom', default=None)
@@ -113,6 +122,18 @@ def main():
     ap.add_argument('--root', default=None)
     ap.add_argument('--license-file', default=None)
     ap.add_argument('--copyright-start', default=None)
+    ap.add_argument('--license-override', default=None)
+    ap.add_argument('--license-text', default=None)
+    ap.add_argument('--supplier', default=None)
+    ap.add_argument('--component-type', default=None)
+    ap.add_argument('--dep-wolfssl', default=None)
+    ap.add_argument('--dep-wolfcrypt', default=None)
+    ap.add_argument('--dep-openssl', default=None)
+    ap.add_argument('--dep-version', action='append', default=[],
+                    help='Dependency version, e.g. wolfssl=5.9.2 (repeatable).')
+    ap.add_argument('--options-h', default=None,
+                    help='Pre-expanded #define header recorded instead of the '
+                         '-D set from the database.')
     # A compilation database lists the -D tokens the compiler was given, not
     # the macros a settings header derives from them. Without these two the
     # capture reads an empty translation unit and the recorded configuration
@@ -135,6 +156,9 @@ def main():
                          'the database names; needs one that supports -M.')
     args = ap.parse_args()
 
+    if args.options_h and (args.settings_h or args.include_dir):
+        sys.exit("ERROR: --settings-h and --include-dir only feed the -D "
+                 "capture; drop them when passing --options-h.")
     if not os.path.isfile(args.compdb):
         sys.exit(f"ERROR: compilation database not found: {args.compdb}")
     with open(args.compdb) as f:
@@ -151,7 +175,9 @@ def main():
     # product must not pull an unrelated file (and its path) into the SBOM.
     root_abs = os.path.realpath(args.root) if args.root else None
 
-    srcs, defines, seen, selected = [], set(), set(), []
+    srcs, seen, selected = [], set(), []
+    defined = {}     # macro name -> (token, first file that set it)
+    conflicts = {}   # macro name -> {token: example file}
     for entry in db:
         fpath = entry.get('file')
         if not fpath:
@@ -162,18 +188,24 @@ def main():
         fpath = os.path.normpath(fpath)
         if not fpath.lower().endswith(SRC_EXTS):
             continue
+        if inc and not any(r.search(fpath) for r in inc):
+            continue
+        if exc and any(r.search(fpath) for r in exc):
+            continue
         if root_abs:
             real = os.path.realpath(fpath)
             if os.path.commonpath([real, root_abs]) != root_abs:
                 sys.stderr.write(
                     f"WARNING: skipping source outside --root: {fpath}\n")
                 continue
-        if inc and not any(r.search(fpath) for r in inc):
-            continue
-        if exc and any(r.search(fpath) for r in exc):
-            continue
         for d in extract_defines(entry_tokens(entry)):
-            defines.add(d)
+            name = macro_name(d)
+            if name not in defined:
+                defined[name] = (d, fpath)
+            elif define_value(defined[name][0]) != define_value(d):
+                vals = conflicts.setdefault(
+                    name, {defined[name][0]: defined[name][1]})
+                vals.setdefault(d, fpath)
         if not os.path.isfile(fpath):
             continue
         if fpath not in seen:
@@ -185,6 +217,17 @@ def main():
 
     if not srcs:
         sys.exit("ERROR: no matching source files found in compilation database")
+
+    if conflicts and not args.options_h:
+        lines = ["ERROR: the selected compile commands disagree on these "
+                 "macros:"]
+        for name in sorted(conflicts):
+            lines.append(f"  {name}:")
+            for tok, src in sorted(conflicts[name].items()):
+                lines.append(f"    -D{tok}  (e.g. {src})")
+        lines.append("Narrow the set with --include/--exclude so one SBOM "
+                     "records one configuration.")
+        sys.exit("\n".join(lines))
 
     included = []
     if args.included_sources:
@@ -229,7 +272,7 @@ def main():
                 included.append(path)
         srcs += included
 
-    defines = sorted(defines)
+    defines = sorted(tok for tok, _src in defined.values())
     cflags = ' '.join(f'-D{d}' for d in defines)
 
     if args.print_only:
@@ -251,7 +294,9 @@ def main():
     with open(srcs_out, 'w') as f:
         f.write('\n'.join(srcs) + '\n')
 
-    cmd = [args.driver, '--srcs-file', srcs_out, f'--cflags={cflags}',
+    config = (['--options-h', args.options_h] if args.options_h
+              else [f'--cflags={cflags}'])
+    cmd = [args.driver, '--srcs-file', srcs_out, *config,
            '--name', args.name]
     for flag, val in (('--version', args.version),
                       ('--version-file', args.version_file),
@@ -259,6 +304,13 @@ def main():
                       ('--root', args.root),
                       ('--license-file', args.license_file),
                       ('--copyright-start', args.copyright_start),
+                      ('--license-override', args.license_override),
+                      ('--license-text', args.license_text),
+                      ('--supplier', args.supplier),
+                      ('--component-type', args.component_type),
+                      ('--dep-wolfssl', args.dep_wolfssl),
+                      ('--dep-wolfcrypt', args.dep_wolfcrypt),
+                      ('--dep-openssl', args.dep_openssl),
                       ('--settings-h', args.settings_h),
                       ('--crypto-only', args.crypto_only),
                       ('--gen-sbom', args.gen_sbom),
@@ -268,6 +320,8 @@ def main():
             cmd += [flag, val]
     for inc in args.include_dir:
         cmd += ['--include-dir', inc]
+    for dv in args.dep_version:
+        cmd += ['--dep-version', dv]
 
     print(f"compdb SBOM: {len(srcs)} sources ({len(included)} included), "
           f"{len(defines)} defines")
