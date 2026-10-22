@@ -110,6 +110,8 @@ class ArgvTests(unittest.TestCase):
         self.assertIn('Rerun release-advisory publish', text)
         self.assertIn('--gpg-key', text)
         self.assertIn('csaf-publish --gpg-key by itself', text)
+        self.assertIn('csaf-fetch', text)
+        self.assertIn('fresh clone has no index', text)
         self.assertNotIn('Sign it with csaf-publish', text)
 
 

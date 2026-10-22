@@ -70,7 +70,7 @@ class UnsignedPublishTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _publish(self):
+    def _publish(self, extra=()):
         # Drive the CLI through the same argv path CI will use.
         import sys
         argv = sys.argv
@@ -80,6 +80,7 @@ class UnsignedPublishTests(unittest.TestCase):
                 '--docs-dir', str(self.docs),
                 '--out-root', str(self.out),
                 '--base-url', 'https://www.wolfssl.com/.well-known/csaf',
+                *extra,
             ]
             pub.main()
         finally:
@@ -109,6 +110,39 @@ class UnsignedPublishTests(unittest.TestCase):
         for algo in ('sha256', 'sha512'):
             side = md_path.with_name(md_path.name + '.' + algo)
             self.assertEqual(side.read_text().split()[0], _sha(md_path, algo))
+
+    def test_unsigned_keep_drops_signatures_of_rewritten_files(self):
+        import contextlib
+        import io
+        csaf_root = self._publish()
+        doc = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+        kept = csaf_root / 'white' / '2026' / 'cve-1999-0001.json'
+        kept.write_text('{}\n')
+        (csaf_root / 'index.txt').write_text(
+            'white/2026/cve-2026-5501.json\n'
+            'white/2026/cve-1999-0001.json\n')
+        doc_asc = doc.with_name(doc.name + '.asc')
+        kept_asc = kept.with_name(kept.name + '.asc')
+        md_asc = (csaf_root / 'provider-metadata.json').with_name(
+            'provider-metadata.json.asc')
+        for path in (doc_asc, kept_asc, md_asc):
+            path.write_text('OLD\n')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self._publish(extra=['--keep'])
+        self.assertFalse(doc_asc.exists())
+        self.assertFalse(md_asc.exists())
+        self.assertTrue(kept.is_file())
+        self.assertEqual(kept_asc.read_text(), 'OLD\n')
+        self.assertNotIn('WARNING:', err.getvalue())
+
+    def test_keep_warns_when_the_tree_has_no_index(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self._publish(extra=['--keep'])
+        self.assertIn('no index.txt', err.getvalue())
 
     def test_rerun_drops_stale_files(self):
         csaf_root = self._publish()
