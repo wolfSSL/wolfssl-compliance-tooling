@@ -67,6 +67,29 @@ These tools run for wolfSSL only. Do not vendor them into a product.
 - `advisory-vex-overlay.schema.json` — the per-CVE overlay schema.
 - `advisory-vex-overlay.example.json` — an overlay example.
 
+- `release-advisory` — one wolfSSL release, in two runs. The name is not
+  `wolfssl-compliance-tooling.sh`. That path is the SBOM driver.
+
+      python3 central/release-advisory draft --release 5.9.4 \
+          --changelog ../wolfssl/ChangeLog.md
+
+  `draft` writes missing overlay lines and stops. Read every REVIEW line.
+  `advisory-completeness` does not judge the determination.
+
+      python3 central/release-advisory publish --release 5.9.4 \
+          --changelog ../wolfssl/ChangeLog.md \
+          --gpg-key <40-hex primary fingerprint>
+
+  `publish` checks completeness, writes the bundle and the per-CVE
+  documents, and adds them to the provider tree (`csaf-publish --keep`).
+  Signing is `--gpg-key`. A separate `gpg --armor --detach-sign` does not
+  update `provider-metadata.json`. The command then prints the copy to the
+  website and the GitHub release update.
+
+  Only wolfSSL is accepted. One product per run. Other products stay in
+  the provider tree because `--keep` does not rebuild it from this release
+  alone.
+
 The advisory tool is already multi-product. It keys the PURL and the CPE per
 product. The security team makes the advisory from CVE records. No product needs
 a build step for advisories.
