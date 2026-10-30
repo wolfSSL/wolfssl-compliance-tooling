@@ -98,7 +98,7 @@ system it ships) while all of them converge on the same engine.
 
 | Frontend | Build system | What it extracts |
 |---|---|---|
-| `sbom.am` | Autotools | Stages a private `make install`, discovers the installed library/binary, hashes it; config from `AM_CPPFLAGS`/`config.h`. |
+| `sbom.am` | Autotools | Stages a private `make install`, discovers the installed library/binary, hashes it; config from `AM_CPPFLAGS`/`config.h`, or `SBOM_USER_SETTINGS`. |
 | `build/sbom.cmake` | CMake | Same shape, called as `wolfssl_compliance_tooling_add_sbom()` with `NAME`/`TARGETS`/`DEFS`. Also adds `install-sbom` and `uninstall-sbom`. |
 | `build/sbom.mk` | Plain Make | Product sets `SBOM_NAME`/`SBOM_SRCS`/`SBOM_CFLAGS` (plus `SBOM_SETTINGS_H` when a `user_settings.h` derives the config), includes the fragment. |
 | `frontends/compdb_sbom.py` | Any `compile_commands.json` | The universal fallback — TI CCS, MPLAB X, Renesas e2studio, or anything wrappable with `bear -- make ...`. |

@@ -41,8 +41,16 @@ Config (choose one):
 - `--options-h PATH` — a pre-expanded flat `#define` header, used verbatim.
 - `--user-settings PATH` — path to `wolfssl/wolfcrypt/settings.h`. Also pass
   `--user-settings-include DIR` (the directory that contains `user_settings.h`)
-  and `--user-settings-define WOLFSSL_USER_SETTINGS`.
+  and `--user-settings-define WOLFSSL_USER_SETTINGS`. The autotools fragment
+  takes `SBOM_USER_SETTINGS`, `SBOM_USER_SETTINGS_INCLUDES` and
+  `SBOM_USER_SETTINGS_DEFINES`.
 - `--source-only` — no build-config macros (for example a Kconfig-driven build).
+
+A product that shares one `user_settings.h` with wolfSSL captures wolfSSL's
+macros along with its own. Pass `--macro-prefix PREFIX` (repeatable; Make and
+autotools `SBOM_MACRO_PREFIX`, CMake `MACRO_PREFIX`) to record only the macros
+whose name starts with that prefix, for example `WOLFCERT_`. `--crypto-only auto`
+still reads the full capture.
 
 Dependency (for linkers and bindings): `--dep-wolfssl`, `--dep-openssl`, and
 `--dep-version` are passed through only when the generator supports them.

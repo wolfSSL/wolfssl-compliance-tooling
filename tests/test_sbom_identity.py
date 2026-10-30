@@ -83,6 +83,7 @@ IDENTITY_RELEVANT = frozenset({
     "--dep-libz",
     "--crypto-only",
     "--dep-version",
+    "--macro-prefix",
 })
 
 IDENTITY_EXEMPT = {
@@ -182,6 +183,10 @@ class TestConfigIdentityUnit(unittest.TestCase):
         # Same claim, different provenance: operator assertion vs macro read.
         self.assertNotEqual(self._id(subset_basis="declared"),
                             self._id(subset_basis="captured"))
+
+    def test_macro_prefix(self):
+        self.assertEqual(self._id(), self._id(macro_prefixes=[]))
+        self.assertNotEqual(self._id(), self._id(macro_prefixes=["HAVE_"]))
 
     def test_fields_do_not_alias(self):
         # Tagged, NUL-delimited framing: a value moved from one field to
@@ -414,6 +419,7 @@ def _identity_rows(f):
          {"--dep-wolfssl": "yes"},
          {"--dep-wolfssl": "yes", "--dep-version": "wolfssl=9.9.9"},
          base),
+        ("--macro-prefix", {}, {"--macro-prefix": ["HAVE_"]}, base),
     ]
 
 

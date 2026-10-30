@@ -2999,6 +2999,155 @@ class TestProductCpePolicy(unittest.TestCase):
         self.assertIsNone(gs.product_cpe_status('wolftpm'))
 
 
+class TestMacroPrefix(unittest.TestCase):
+    """--macro-prefix scopes the recorded configuration to one product."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.dir = self._tmp.name
+        self.opts_h = self._write(
+            'options.h',
+            '#define HAVE_AES 1\n'
+            '#define WOLFCRYPT_ONLY\n'
+            '#define WOLFCERT_SCEP 1\n'
+            '#define WOLFCERT_EST 1\n')
+        self.lib = self._write('libx.a', '!<arch>\n')
+        self.lic = self._write('LICENSING', 'Licensed under GPLv3.\n')
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, name, body):
+        path = os.path.join(self.dir, name)
+        with open(path, 'w') as f:
+            f.write(body)
+        return path
+
+    def _run(self, *argv, config=None):
+        import subprocess
+        here = pathlib.Path(__file__).resolve().parent
+        script = here.parent / 'share' / 'gen-sbom'
+        return subprocess.run(
+            ['python3', str(script), '--name', 'wolfcert', '--version', '1.0',
+             '--license-file', self.lic, '--lib', self.lib,
+             *(config or ['--options-h', self.opts_h]),
+             '--cdx-out', os.path.join(self.dir, 'out.cdx.json'),
+             '--spdx-out', os.path.join(self.dir, 'out.spdx.json'), *argv],
+            capture_output=True, text=True)
+
+    def _generate(self, *argv, config=None):
+        proc = self._run(*argv, config=config)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        with open(os.path.join(self.dir, 'out.cdx.json')) as f:
+            cdx_doc = json.load(f)
+        with open(os.path.join(self.dir, 'out.spdx.json')) as f:
+            spdx_doc = json.load(f)
+        props = {p['name']: p['value']
+                 for p in cdx_doc['metadata']['component']['properties']}
+        return props, spdx_doc, proc
+
+    @staticmethod
+    def _build(props):
+        return sorted(k[len('wolfssl:build:'):] for k in props
+                      if k.startswith('wolfssl:build:'))
+
+    def test_filter_helper(self):
+        pairs = [('HAVE_AES', '1'), ('WOLFCERT_A', ''), ('WOLFSSL_X', '2')]
+        self.assertEqual(gs.filter_macro_prefix(pairs, []), pairs)
+        self.assertEqual(gs.filter_macro_prefix(pairs, ['WOLFCERT_']),
+                         [('WOLFCERT_A', '')])
+        self.assertEqual(
+            gs.filter_macro_prefix(pairs, ['WOLFCERT_', 'HAVE_']),
+            [('HAVE_AES', '1'), ('WOLFCERT_A', '')])
+
+    def test_default_records_everything(self):
+        props, spdx, _ = self._generate()
+        self.assertEqual(self._build(props), [
+            'HAVE_AES', 'WOLFCERT_EST', 'WOLFCERT_SCEP', 'WOLFCRYPT_ONLY'])
+        self.assertNotIn('wolfssl:sbom:macro-prefix', props)
+        self.assertNotIn('macro-prefix', json.dumps(spdx))
+
+    def test_options_h_filtered_and_scope_recorded(self):
+        props, spdx, _ = self._generate('--macro-prefix', 'WOLFCERT_')
+        self.assertEqual(self._build(props), ['WOLFCERT_EST', 'WOLFCERT_SCEP'])
+        self.assertEqual(props['wolfssl:sbom:macro-prefix'], 'WOLFCERT_')
+        pkg = spdx['packages'][0]
+        self.assertEqual(pkg['comment'],
+                         'Build configuration defines: WOLFCERT_EST, '
+                         'WOLFCERT_SCEP')
+        notes = [a['comment'] for a in pkg['annotations']]
+        self.assertIn('wolfssl:sbom:macro-prefix=WOLFCERT_', notes)
+
+    def test_crypto_only_reads_the_unfiltered_capture(self):
+        props, _, _ = self._generate('--macro-prefix', 'WOLFCERT_')
+        self.assertEqual(props['wolfssl:sbom:wolfssl-subset'],
+                         gs.WOLFSSL_SUBSET_CRYPTO_ONLY)
+        self.assertEqual(props['wolfssl:sbom:wolfssl-subset-basis'],
+                         'captured')
+
+    def test_multiple_prefixes_sorted_and_deduplicated(self):
+        props, _, _ = self._generate('--macro-prefix', 'WOLFCERT_',
+                                     '--macro-prefix', 'HAVE_',
+                                     '--macro-prefix', 'WOLFCERT_')
+        self.assertEqual(self._build(props),
+                         ['HAVE_AES', 'WOLFCERT_EST', 'WOLFCERT_SCEP'])
+        self.assertEqual(props['wolfssl:sbom:macro-prefix'],
+                         'HAVE_,WOLFCERT_')
+
+    def test_no_match_warns(self):
+        props, _, proc = self._generate('--macro-prefix', 'WOLFSSH_')
+        self.assertEqual(self._build(props), [])
+        self.assertIn('matched none of the 4 captured macros', proc.stderr)
+
+    def test_partial_miss_warns_per_prefix(self):
+        props, _, proc = self._generate('--macro-prefix', 'HAVE_',
+                                        '--macro-prefix', 'WOLFSSH_')
+        self.assertNotEqual(self._build(props), [])
+        self.assertIn('--macro-prefix WOLFSSH_ matched none', proc.stderr)
+        self.assertNotIn('--macro-prefix HAVE_ matched none', proc.stderr)
+
+    def test_empty_capture_warns(self):
+        empty = self._write('empty.h', '')
+        _, _, proc = self._generate('--macro-prefix', 'WOLFCERT_',
+                                    config=['--options-h', empty])
+        self.assertIn('has no captured macros to filter', proc.stderr)
+
+    def test_padded_prefix_rejected(self):
+        proc = self._run('--macro-prefix', ' HAVE_')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('whitespace', proc.stderr)
+
+    def test_comma_in_prefix_rejected(self):
+        proc = self._run('--macro-prefix', 'HAVE_,WOLFCERT_')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('takes one prefix', proc.stderr)
+
+    def test_empty_prefix_rejected(self):
+        proc = self._run('--macro-prefix', '')
+        self.assertNotEqual(proc.returncode, 0)
+        self.assertIn('--macro-prefix must not be empty', proc.stderr)
+
+    def test_user_settings_filtered(self):
+        try:
+            import pcpp  # noqa: F401
+        except ImportError:
+            self.fail('pcpp is required for the --user-settings path; '
+                      "install with 'python3 -m pip install --user pcpp'.")
+        settings = self._write(
+            'settings.h',
+            '#ifdef WOLFSSL_USER_SETTINGS\n'
+            '#include "user_settings.h"\n'
+            '#endif\n')
+        self._write('user_settings.h',
+                    '#define WOLFCERT_SCEP 1\n#define HAVE_ECC 1\n')
+        props, _, _ = self._generate(
+            '--macro-prefix', 'WOLFCERT_',
+            config=['--user-settings', settings,
+                    '--user-settings-include', self.dir,
+                    '--user-settings-define', 'WOLFSSL_USER_SETTINGS'])
+        self.assertEqual(self._build(props), ['WOLFCERT_SCEP'])
+
+
 class TestResolveCryptoOnly(unittest.TestCase):
     """--crypto-only auto reads the macro; explicit values win."""
 
