@@ -107,7 +107,7 @@ These are things this checkout showed directly, not inferred from the docs:
   `3ab77f9`.
 - **The sync tool doesn't rewrite relative-path prose, so it can
   self-contradict once vendored.** `share/README.md` says "the shared driver
-  ... calls the vendored `share/gen-sbom` by default" — true in wfGlass
+  ... calls the vendored `share/gen-sbom` by default" — true in wolfssl-compliance-tooling
   itself, but `wolfssl-compliance-tooling-sync` copies that sentence verbatim into every
   product's `tools/sbom/README.md`, where the file actually lives at
   `tools/sbom/gen-sbom`. Action: reword the source doc to say "the sibling
