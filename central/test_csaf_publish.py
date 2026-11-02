@@ -70,7 +70,7 @@ class UnsignedPublishTests(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def _publish(self):
+    def _publish(self, extra=()):
         # Drive the CLI through the same argv path CI will use.
         import sys
         argv = sys.argv
@@ -80,6 +80,7 @@ class UnsignedPublishTests(unittest.TestCase):
                 '--docs-dir', str(self.docs),
                 '--out-root', str(self.out),
                 '--base-url', 'https://www.wolfssl.com/.well-known/csaf',
+                *extra,
             ]
             pub.main()
         finally:
@@ -110,6 +111,39 @@ class UnsignedPublishTests(unittest.TestCase):
             side = md_path.with_name(md_path.name + '.' + algo)
             self.assertEqual(side.read_text().split()[0], _sha(md_path, algo))
 
+    def test_unsigned_keep_drops_signatures_of_rewritten_files(self):
+        import contextlib
+        import io
+        csaf_root = self._publish()
+        doc = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+        kept = csaf_root / 'white' / '2026' / 'cve-1999-0001.json'
+        kept.write_text('{}\n')
+        (csaf_root / 'index.txt').write_text(
+            'white/2026/cve-2026-5501.json\n'
+            'white/2026/cve-1999-0001.json\n')
+        doc_asc = doc.with_name(doc.name + '.asc')
+        kept_asc = kept.with_name(kept.name + '.asc')
+        md_asc = (csaf_root / 'provider-metadata.json').with_name(
+            'provider-metadata.json.asc')
+        for path in (doc_asc, kept_asc, md_asc):
+            path.write_text('OLD\n')
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self._publish(extra=['--keep'])
+        self.assertFalse(doc_asc.exists())
+        self.assertFalse(md_asc.exists())
+        self.assertTrue(kept.is_file())
+        self.assertEqual(kept_asc.read_text(), 'OLD\n')
+        self.assertNotIn('WARNING:', err.getvalue())
+
+    def test_keep_warns_when_the_tree_has_no_index(self):
+        import contextlib
+        import io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            self._publish(extra=['--keep'])
+        self.assertIn('no index.txt', err.getvalue())
+
     def test_rerun_drops_stale_files(self):
         csaf_root = self._publish()
         stale = csaf_root / 'white' / '2026' / 'cve-1999-0001.json'
@@ -119,6 +153,44 @@ class UnsignedPublishTests(unittest.TestCase):
         self.assertFalse(stale.exists())
         json_docs = sorted(p.name for p in (csaf_root / 'white' / '2026').glob('*.json'))
         self.assertEqual(json_docs, ['cve-2026-5501.json'])
+
+    def test_keep_adds_a_document_and_drops_an_unindexed_file(self):
+        csaf_root = self._publish()
+        kept = csaf_root / 'white' / '2026' / 'cve-2026-5501.json'
+        kept_hash = _sha(kept, 'sha256')
+        docs2 = self.root / 'docs2'
+        docs2.mkdir()
+        second = json.loads((self.docs / 'CVE-2026-5501.csaf.json').read_text())
+        second['document']['tracking']['id'] = 'CVE-2026-5999'
+        (docs2 / 'CVE-2026-5999.csaf.json').write_text(
+            json.dumps(second, indent=2) + '\n')
+        stale = csaf_root / 'white' / '2026' / 'cve-1999-0001.json'
+        stale.write_text('{}\n')
+        import sys
+        argv = sys.argv
+        try:
+            sys.argv = [
+                'csaf-publish',
+                '--docs-dir', str(docs2),
+                '--out-root', str(self.out),
+                '--base-url', 'https://www.wolfssl.com/.well-known/csaf',
+                '--keep',
+            ]
+            pub.main()
+        finally:
+            sys.argv = argv
+        self.assertTrue(kept.is_file())
+        self.assertEqual(_sha(kept, 'sha256'), kept_hash)
+        self.assertTrue((csaf_root / 'white' / '2026' / 'cve-2026-5999.json').is_file())
+        self.assertFalse(stale.exists())
+        index = (csaf_root / 'index.txt').read_text().splitlines()
+        self.assertEqual(index, [
+            'white/2026/cve-2026-5501.json',
+            'white/2026/cve-2026-5999.json',
+        ])
+        changes = (csaf_root / 'changes.csv').read_text()
+        self.assertIn('white/2026/cve-2026-5501.json', changes)
+        self.assertIn('white/2026/cve-2026-5999.json', changes)
 
     def test_source_date_epoch_pins_metadata_timestamp(self):
         saved = os.environ.get('SOURCE_DATE_EPOCH')

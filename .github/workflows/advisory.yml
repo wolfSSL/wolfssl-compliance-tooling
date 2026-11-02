@@ -34,10 +34,12 @@ jobs:
             central/csaf-publish \
             central/csaf-verify \
             central/csaf-keygen \
+            central/release-advisory \
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
             central/test_advisory_overlay_draft.py \
-            central/test_csaf_publish.py
+            central/test_csaf_publish.py \
+            central/test_release_advisory.py
 
       - name: Unit tests
         run: |
@@ -45,7 +47,8 @@ jobs:
             central/test_gen_advisory.py \
             central/test_advisory_completeness.py \
             central/test_advisory_overlay_draft.py \
-            central/test_csaf_publish.py
+            central/test_csaf_publish.py \
+            central/test_release_advisory.py
 
       - name: Completeness gate for every release directory
         run: |
