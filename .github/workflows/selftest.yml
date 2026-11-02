@@ -65,7 +65,8 @@ jobs:
             tests/test_zephyr_sbom.py \
             tests/test_sbom_cmake_install.py \
             tests/test_wolfssl_compliance_tooling_sync.py \
-            tests/test_sbom_autotools.py
+            tests/test_sbom_autotools.py \
+            tests/test_sbom_mk.py
 
       - name: Run generator unit tests
         run: python -m unittest tests/test_gen_sbom.py
@@ -102,6 +103,9 @@ jobs:
 
       - name: Run autotools sbom.am test
         run: python -m unittest tests/test_sbom_autotools.py
+
+      - name: Run plain-Make sbom.mk test
+        run: python -m unittest tests/test_sbom_mk.py
 
       - name: Run self-test
         run: python tests/test_sbom.py
