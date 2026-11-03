@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """CMake install-sbom / uninstall-sbom and build-time SOURCE_DATE_EPOCH."""
 
+import hashlib
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -325,6 +327,186 @@ wolfssl_compliance_tooling_add_sbom(
         text = self._build_text(build)
         self.assertIn("install-sbom-extra", text)
         self.assertIn("uninstall-sbom-extra", text)
+
+
+FAKE_PYSPDXTOOLS = """#!{python}
+import json, sys
+args = dict(zip(sys.argv[1::2], sys.argv[2::2]))
+doc = json.load(open(args["--infile"]))
+if doc.get("spdxVersion") != "SPDX-2.3" or "{fail}" == "yes":
+    sys.exit("invalid SPDX")
+open(args["--outfile"], "w").write("SPDXVersion: SPDX-2.3\\n")
+"""
+
+
+class HelperBuildTests(unittest.TestCase):
+    """Build the sbom and install-sbom targets of a small C project."""
+
+    def setUp(self):
+        if not CMAKE:
+            self.skipTest("cmake is not installed")
+        if not shutil.which("cc"):
+            self.skipTest("cc is not installed")
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.src = self.dir / "src"
+        self.src.mkdir()
+        (self.src / "x.c").write_text("int x(void) { return 1; }\n")
+        (self.src / "opts.h").write_text("#define DEMO 1\n")
+        (self.src / "LICENSE").write_text("demo\n")
+        self.build = self.dir / "build"
+        self.env = os.environ.copy()
+        self.env.pop("DESTDIR", None)
+        self.env["SOURCE_DATE_EPOCH"] = "1700000000"
+
+    def _fake_pyspdxtools(self, fail=False):
+        tool = self.dir / "pyspdxtools"
+        tool.write_text(FAKE_PYSPDXTOOLS.format(
+            python=sys.executable, fail="yes" if fail else "no"))
+        tool.chmod(0o755)
+        return tool
+
+    def _project(self, call, prelude=""):
+        (self.src / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(demo C)
+include(GNUInstallDirs)
+{prelude}
+add_library(demo SHARED x.c)
+install(TARGETS demo
+    LIBRARY DESTINATION ${{CMAKE_INSTALL_LIBDIR}}
+    ARCHIVE DESTINATION ${{CMAKE_INSTALL_LIBDIR}}
+    RUNTIME DESTINATION ${{CMAKE_INSTALL_BINDIR}})
+include("{BUILD / "sbom.cmake"}")
+{call}
+""")
+
+    def _configure(self, *args):
+        result = run([
+            CMAKE, "-S", str(self.src), "-B", str(self.build),
+            "-G", "Unix Makefiles", *args,
+        ], env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+
+    def _build(self, *targets, env=None):
+        cmd = [CMAKE, "--build", str(self.build)]
+        for target in targets:
+            cmd += ["--target", target]
+        return run(cmd, env=env or self.env)
+
+    def test_missing_python_fails_at_build_time(self):
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        self._configure("-DCMAKE_DISABLE_FIND_PACKAGE_Python3=ON")
+        built = self._build("sbom")
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn("python3 was not found", built.stdout + built.stderr)
+        installed = self._build("install-sbom")
+        self.assertNotEqual(installed.returncode, 0)
+
+    def test_validate_without_pyspdxtools_fails_at_build_time(self):
+        # The compiler and make are found first. Then no search path is
+        # left, so a pyspdxtools on this host is not found either.
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    VALIDATE
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", prelude="""
+set(CMAKE_FIND_USE_SYSTEM_ENVIRONMENT_PATH OFF)
+set(CMAKE_FIND_USE_CMAKE_SYSTEM_PATH OFF)
+""")
+        self._configure(f"-DPython3_EXECUTABLE={sys.executable}")
+        built = self._build("sbom")
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn("pyspdxtools was not found",
+                      built.stdout + built.stderr)
+        self.assertFalse((self.build / "demo-1.cdx.json").exists())
+
+    def test_stage_validate_and_install(self):
+        # An absolute libdir must stay inside the staging tree, and a
+        # DESTDIR meant for install-sbom must not move the staging.
+        abs_libdir = self.dir / "abs-libdir"
+        docdir = self.dir / "doc"
+        self._project(f"""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    VALIDATE
+    PYSPDXTOOLS {self._fake_pyspdxtools()}
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h
+    INSTALL_DIR {docdir})
+""")
+        self._configure(f"-DCMAKE_INSTALL_LIBDIR={abs_libdir}",
+                        f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}")
+        self.assertEqual(self._build().returncode, 0)
+
+        dest = self.dir / "dest"
+        env = dict(self.env, DESTDIR=str(dest))
+        built = self._build("install-sbom", env=env)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+
+        self.assertFalse(abs_libdir.exists())
+        self.assertFalse((self.build / "_sbom_staging").exists())
+        for name in ("demo-1.cdx.json", "demo-1.spdx.json", "demo-1.spdx"):
+            self.assertTrue((self.build / name).is_file(), name)
+            staged = Path(str(dest) + str(docdir)) / name
+            self.assertTrue(staged.is_file(), staged)
+
+        # The recorded hash is the hash of an installed copy.
+        real = self.dir / "real"
+        installed = run([CMAKE, "--install", str(self.build)],
+                        env=dict(self.env, DESTDIR=str(real)))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        libs = [p for p in Path(str(real) + str(abs_libdir)).iterdir()
+                if p.is_file() and not p.is_symlink()]
+        self.assertEqual(len(libs), 1, libs)
+        digest = hashlib.sha256(libs[0].read_bytes()).hexdigest()
+        self.assertIn(digest, (self.build / "demo-1.cdx.json").read_text())
+
+    def test_failed_validation_fails_the_target(self):
+        self._project(f"""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    VALIDATE
+    PYSPDXTOOLS {self._fake_pyspdxtools(fail=True)}
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+""")
+        self._configure()
+        self.assertEqual(self._build().returncode, 0)
+        built = self._build("install-sbom")
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn("SPDX validation failed", built.stdout + built.stderr)
+        self.assertFalse((self.build / "demo-1.spdx").exists())
+        self.assertFalse((self.build / "_sbom_staging").exists())
+
+    def test_staging_without_a_build_fails_and_cleans_up(self):
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+add_executable(other x.c)
+install(TARGETS other RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+""")
+        self._configure()
+        built = self._build("sbom")
+        self.assertNotEqual(built.returncode, 0)
+        self.assertIn("SBOM staging install failed",
+                      built.stdout + built.stderr)
+        self.assertFalse((self.build / "_sbom_staging").exists())
 
 
 if __name__ == "__main__":
