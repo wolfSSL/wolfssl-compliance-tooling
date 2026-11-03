@@ -101,6 +101,12 @@ get_filename_component(_WOLFSSL_COMPLIANCE_TOOLING_DRIVER
     "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}/../sbom-driver.py" ABSOLUTE)
 find_package(Python3 COMPONENTS Interpreter)
 
+# Fallbacks for a call from a directory that did not include() this file.
+set_property(GLOBAL PROPERTY _WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR
+    "${CMAKE_CURRENT_LIST_DIR}")
+set_property(GLOBAL PROPERTY _WOLFSSL_COMPLIANCE_TOOLING_PYTHON3
+    "${Python3_EXECUTABLE}")
+
 function(wolfssl_compliance_tooling_add_sbom)
     set(_opts NO_ARTIFACT_HASH SOURCE_ONLY NO_INSTALL)
     set(_one NAME TARGET_NAME VERSION VERSION_FILE VERSION_MACRO LICENSE
@@ -167,13 +173,23 @@ function(wolfssl_compliance_tooling_add_sbom)
     list(REMOVE_DUPLICATES _srcs)
 
     if(NOT Python3_EXECUTABLE)
+        get_property(Python3_EXECUTABLE GLOBAL PROPERTY
+            _WOLFSSL_COMPLIANCE_TOOLING_PYTHON3)
+    endif()
+    if(NOT Python3_EXECUTABLE)
         message(FATAL_ERROR
             "wolfssl_compliance_tooling_add_sbom: python3 was not found")
     endif()
 
+    set(_sbom_dir "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}")
+    if(NOT _sbom_dir)
+        get_property(_sbom_dir GLOBAL PROPERTY _WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR)
+    endif()
+    get_filename_component(_driver "${_sbom_dir}/../sbom-driver.py" ABSOLUTE)
+
     set(_cmd ${CMAKE_COMMAND} -E env HOSTCC=${SB_HOSTCC}
              ${Python3_EXECUTABLE}
-             ${_WOLFSSL_COMPLIANCE_TOOLING_DRIVER}
+             ${_driver}
              --name ${SB_NAME}
              --root ${SB_ROOT}
              --license-file ${SB_LICENSE}
@@ -305,7 +321,7 @@ function(wolfssl_compliance_tooling_add_sbom)
     add_custom_target(${SB_TARGET_NAME}
         COMMAND ${CMAKE_COMMAND}
             -DSBOM_ROOT=${SB_ROOT}
-            -P "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}/sbom-with-sde.cmake"
+            -P "${_sbom_dir}/sbom-with-sde.cmake"
             --
             ${_cmd}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
@@ -371,6 +387,10 @@ function(wolfssl_compliance_tooling_add_sbom_install)
     if(NOT IS_ABSOLUTE "${_docdir}")
         set(_docdir "${CMAKE_INSTALL_PREFIX}/${_docdir}")
     endif()
+    set(_sbom_dir "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}")
+    if(NOT _sbom_dir)
+        get_property(_sbom_dir GLOBAL PROPERTY _WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR)
+    endif()
 
     add_custom_target(${SI_INSTALL_TARGET}
         COMMAND ${CMAKE_COMMAND}
@@ -383,7 +403,7 @@ function(wolfssl_compliance_tooling_add_sbom_install)
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_VERSION_FILE=${SI_VERSION_FILE}
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_VERSION_MACRO=${SI_VERSION_MACRO}
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_BINDIR=${SI_BINDIR}
-            -P "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}/install-sbom.cmake"
+            -P "${_sbom_dir}/install-sbom.cmake"
         VERBATIM
         COMMENT "Installing ${SI_NAME} SBOM to ${_docdir}")
     add_dependencies(${SI_INSTALL_TARGET} ${SI_DEPENDS})
@@ -399,7 +419,7 @@ function(wolfssl_compliance_tooling_add_sbom_install)
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_VERSION_FILE=${SI_VERSION_FILE}
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_VERSION_MACRO=${SI_VERSION_MACRO}
             -DWOLFSSL_COMPLIANCE_TOOLING_SBOM_BINDIR=${SI_BINDIR}
-            -P "${_WOLFSSL_COMPLIANCE_TOOLING_SBOM_DIR}/uninstall-sbom.cmake"
+            -P "${_sbom_dir}/uninstall-sbom.cmake"
         VERBATIM
         COMMENT "Uninstalling ${SI_NAME} SBOM from ${_docdir}")
 endfunction()
