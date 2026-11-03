@@ -90,7 +90,8 @@ A product does not copy logic. It describes itself:
   actually built. Without that hook, run `zephyr_sbom.py` on the build's
   `compile_commands.json` with `--root` set to the module, and pass
   `--user-settings` with the module's settings header to record its
-  configuration.
+  configuration. A module that adds its sources with `target_sources(app
+  ...)`, as wolfTPM does, needs `--target app`.
 
 Keep only true product knowledge in the product: the route-through script, the
 module extractor, and the HAL source selector.
