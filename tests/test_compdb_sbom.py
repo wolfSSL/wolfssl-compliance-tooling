@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """Tests for the compilation-database frontend (share/frontends/compdb_sbom.py)."""
 
+import contextlib
+import importlib.util
+import io
 import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 COMPDB = os.path.join(REPO, "share", "frontends", "compdb_sbom.py")
@@ -178,6 +182,34 @@ class TestRootFilter(CompdbCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("outside --root", r.stderr)
         self.assertNotIn("app.c", r.stdout)
+
+    def test_source_on_another_drive_is_warned(self):
+        # Windows commonpath() raises ValueError for paths on two drives.
+        root = self.write_outside()
+        spec = importlib.util.spec_from_file_location("compdb_sbom", COMPDB)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        real_commonpath = os.path.commonpath
+
+        def commonpath(paths):
+            if any(os.path.basename(p) == "app.c" for p in paths):
+                raise ValueError("Paths don't have the same drive")
+            return real_commonpath(paths)
+
+        out, err = io.StringIO(), io.StringIO()
+        argv = [COMPDB, self.db, "--name", "t", "--root", root,
+                "--print-only"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.object(mod.os.path, "commonpath", commonpath), \
+                contextlib.redirect_stdout(out), \
+                contextlib.redirect_stderr(err):
+            try:
+                mod.main()
+            except SystemExit as e:
+                self.assertIn(e.code, (None, 0), err.getvalue())
+        self.assertIn("outside --root", err.getvalue())
+        self.assertIn("in.c", out.getvalue())
+        self.assertNotIn("app.c", out.getvalue())
 
 
 if __name__ == "__main__":

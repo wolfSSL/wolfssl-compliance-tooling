@@ -146,6 +146,27 @@ class TestSourceSelection(_ZephyrTest):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("--module-name", r.stderr)
 
+    def test_target_selects_app_sources(self):
+        compdb = self.write_compdb([
+            ("src/core.c", APP), ("src/est.c", APP), ("src/scep.c", LIB),
+            ("src/core.c", "CMakeFiles/app_extra.dir/"),
+            (self.outside, APP)])
+        entries, outside = zephyr.compdb_entries(compdb, self.mod, "mod",
+                                                 "app")
+        self.assertEqual(self.rels(entries), ["src/core.c", "src/est.c"])
+        self.assertEqual(outside, [self.outside])
+        r = self.run_frontend("--compdb", compdb, "--target", "app",
+                              "--print-only")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("# mod: 2 sources", r.stdout)
+
+    def test_target_without_entries_fails(self):
+        compdb = self.write_compdb([("src/core.c", LIB)])
+        r = self.run_frontend("--compdb", compdb, "--target", "app",
+                              "--print-only")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("target 'app'", r.stderr)
+
     def test_source_outside_root_is_warned(self):
         compdb = self.write_compdb([("src/core.c", LIB), (self.outside, LIB)])
         r = self.run_frontend("--compdb", compdb, "--print-only")
@@ -319,6 +340,23 @@ class TestUserSettings(_ZephyrTest):
                               "--user-settings", self.settings)
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("#define HAVE_X 1", r.stdout)
+
+    def test_compiler_launcher_is_skipped(self):
+        launcher = os.path.join(self.tmp.name, "ccache")
+        with open(launcher, "w") as f:
+            f.write("#!/bin/sh\nexit 1\n")
+        os.chmod(launcher, 0o755)
+        compdb = self.write_compdb([("src/core.c", LIB)], self.flags)
+        with open(compdb) as f:
+            db = json.load(f)
+        db[0]["arguments"].insert(0, launcher)
+        with open(compdb, "w") as f:
+            json.dump(db, f)
+        r = self.run_frontend("--compdb", compdb, "--print-only",
+                              "--user-settings", self.settings)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("#define HAVE_X 1", r.stdout)
+        self.assertIn("#define MOD_DEBUG 1", r.stdout)
 
     def test_hostcc_needs_user_settings(self):
         compdb = self.write_compdb([("src/core.c", LIB)])
