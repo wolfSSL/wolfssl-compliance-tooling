@@ -2,9 +2,9 @@
 # build time.
 #
 # Keep a value that is already in the environment. When it is empty, use
-# the last git commit time of SBOM_ROOT when that directory is the git
-# toplevel. A tarball unpacked inside another checkout is not that
-# toplevel, so the outer commit time is not used. A tree with no git
+# the last commit time of the enclosing checkout when SBOM_ROOT holds
+# files tracked there. A tarball unpacked into an untracked directory of
+# another checkout does not take that checkout's time. A tree with no git
 # leaves the variable empty, and gen-sbom uses its own default.
 #
 # Arguments after "--" are the driver command.
@@ -20,26 +20,20 @@ if(_sde STREQUAL "" AND NOT SBOM_ROOT STREQUAL "")
         set(_sde "")
         execute_process(
             COMMAND "${_wolfssl_compliance_tooling_git}" -C "${SBOM_ROOT}"
-                    rev-parse --show-toplevel
-            OUTPUT_VARIABLE _git_top
-            OUTPUT_STRIP_TRAILING_WHITESPACE
+                    ls-files --error-unmatch -- .
+            OUTPUT_QUIET
             ERROR_QUIET
             RESULT_VARIABLE _git_rc)
-        if(_git_rc EQUAL 0 AND NOT _git_top STREQUAL "")
-            # REALPATH is available on CMake 3.16. file(REAL_PATH) needs 3.19.
-            get_filename_component(_root_real "${SBOM_ROOT}" REALPATH)
-            get_filename_component(_top_real "${_git_top}" REALPATH)
-            if(_root_real STREQUAL _top_real)
-                execute_process(
-                    COMMAND "${_wolfssl_compliance_tooling_git}" -C "${SBOM_ROOT}"
-                            log -1 --format=%ct
-                    OUTPUT_VARIABLE _sde
-                    OUTPUT_STRIP_TRAILING_WHITESPACE
-                    ERROR_QUIET
-                    RESULT_VARIABLE _git_rc)
-                if(NOT _git_rc EQUAL 0)
-                    set(_sde "")
-                endif()
+        if(_git_rc EQUAL 0)
+            execute_process(
+                COMMAND "${_wolfssl_compliance_tooling_git}" -C "${SBOM_ROOT}"
+                        log -1 --format=%ct
+                OUTPUT_VARIABLE _sde
+                OUTPUT_STRIP_TRAILING_WHITESPACE
+                ERROR_QUIET
+                RESULT_VARIABLE _git_rc)
+            if(NOT _git_rc EQUAL 0)
+                set(_sde "")
             endif()
         endif()
         if(NOT _sde STREQUAL "")

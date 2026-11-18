@@ -158,6 +158,25 @@ class SdeScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), stamp.stdout.strip())
 
+    def test_tracked_subdirectory_uses_the_commit_time(self):
+        git = shutil.which("git")
+        if not git:
+            self.skipTest("git is not installed")
+        run([git, "init"], cwd=self.dir)
+        run([git, "config", "user.email", "sbom@example.invalid"], cwd=self.dir)
+        run([git, "config", "user.name", "sbom"], cwd=self.dir)
+        sub = self.dir / "lib"
+        sub.mkdir()
+        (sub / "x.c").write_text("int x;\n")
+        run([git, "add", "lib/x.c"], cwd=self.dir)
+        run([git, "commit", "-m", "init"], cwd=self.dir)
+        stamp = run([git, "log", "-1", "--format=%ct"], cwd=self.dir)
+        env = os.environ.copy()
+        env.pop("SOURCE_DATE_EPOCH", None)
+        result = self._print_sde(sub, env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), stamp.stdout.strip())
+
     def test_nested_directory_does_not_use_the_outer_commit(self):
         # A release tarball unpacked inside another checkout must not
         # take that checkout's commit time.
@@ -302,6 +321,80 @@ wolfssl_compliance_tooling_add_sbom(
         self.assertEqual(built.returncode, 0, built.stderr + built.stdout)
         self.assertTrue((build / "t-1.cdx.json").is_file())
         self.assertTrue((build / "t-1.spdx.json").is_file())
+
+    def test_call_from_a_sibling_directory_builds(self):
+        # sbom.cmake is included in one subdirectory and the helper is
+        # called from another, where its directory variables are unset.
+        src = self.dir / "src"
+        (src / "inc").mkdir(parents=True)
+        (src / "app").mkdir()
+        (src / "app" / "x.c").write_text("int x(void) { return 1; }\n")
+        (src / "LICENSE").write_text("demo\n")
+        (src / "CMakeLists.txt").write_text("""
+cmake_minimum_required(VERSION 3.16)
+project(sbomtest C)
+add_subdirectory(inc)
+add_subdirectory(app)
+""")
+        (src / "inc" / "CMakeLists.txt").write_text(
+            f'include("{BUILD / "sbom.cmake"}")\n')
+        (src / "app" / "CMakeLists.txt").write_text("""
+add_library(x STATIC x.c)
+wolfssl_compliance_tooling_add_sbom(
+    NAME t
+    VERSION 1
+    TARGETS x
+    SOURCE_ONLY
+    ROOT ${CMAKE_SOURCE_DIR}
+    LICENSE ${CMAKE_SOURCE_DIR}/LICENSE
+    INSTALL_DIR ${CMAKE_BINARY_DIR}/doc)
+""")
+        build = self.dir / "build"
+        configured = run([
+            CMAKE, "-S", str(src), "-B", str(build), "-G", "Unix Makefiles",
+        ])
+        self.assertEqual(configured.returncode, 0,
+                         configured.stderr + configured.stdout)
+        for target in ("sbom", "install-sbom"):
+            built = run([CMAKE, "--build", str(build), "--target", target])
+            self.assertEqual(built.returncode, 0, built.stderr + built.stdout)
+        self.assertTrue((build / "app" / "t-1.cdx.json").is_file())
+        self.assertTrue((build / "doc" / "t-1.cdx.json").is_file())
+
+    def test_call_uses_its_own_directory_copy(self):
+        # A subproject that vendors its own copy must not redirect the
+        # top project's SBOM to that copy's driver.
+        src = self.dir / "src"
+        (src / "dep").mkdir(parents=True)
+        shutil.copytree(BUILD.parent, src / "dep" / "sbom")
+        (src / "x.c").write_text("int x(void) { return 1; }\n")
+        (src / "LICENSE").write_text("demo\n")
+        (src / "dep" / "CMakeLists.txt").write_text(
+            'include("${CMAKE_CURRENT_SOURCE_DIR}/sbom/build/sbom.cmake")\n')
+        (src / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(sbomtest C)
+include("{BUILD / "sbom.cmake"}")
+add_subdirectory(dep)
+add_library(x STATIC x.c)
+wolfssl_compliance_tooling_add_sbom(
+    NAME t
+    VERSION 1
+    TARGETS x
+    SOURCE_ONLY
+    ROOT ${{CMAKE_CURRENT_SOURCE_DIR}}
+    LICENSE ${{CMAKE_CURRENT_SOURCE_DIR}}/LICENSE)
+""")
+        build = self.dir / "build"
+        configured = run([
+            CMAKE, "-S", str(src), "-B", str(build), "-G", "Unix Makefiles",
+        ])
+        self.assertEqual(configured.returncode, 0,
+                         configured.stderr + configured.stdout)
+        text = (build / "CMakeFiles" / "sbom.dir" / "build.make").read_text()
+        self.assertIn(str(BUILD / "sbom-with-sde.cmake"), text)
+        self.assertIn(str(BUILD.parent / "sbom-driver.py"), text)
+        self.assertNotIn(str(src / "dep"), text)
 
     def test_second_call_keeps_its_install_target_name(self):
         build = self._configure(f"""
