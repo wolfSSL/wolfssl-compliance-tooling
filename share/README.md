@@ -25,7 +25,7 @@ into a product at `tools/sbom/`, together with the pin files (`VERSION` and
 Every front end produces a composition input and a config input and hands them to
 the driver.
 
-Composition (at least one):
+Composition (pick one):
 
 - `--srcs-file PATH` — the source files compiled into the artifact (tier E).
 - `--lib PATH` — the built library to hash (tier R/L/S).
