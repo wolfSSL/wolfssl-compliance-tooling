@@ -229,7 +229,6 @@ $(SBOM_TAB)@set -e; \
 endef
 
 # Products vendored before the rename still call wolfglass_sbom_rule.
-# Keep that name so a sync does not break their Makefile.
 # Use a recursive reference, not $(value): $(call) must expand $(1) and $(2).
 wolfglass_sbom_rule = $(wolfssl_compliance_tooling_sbom_rule)
 

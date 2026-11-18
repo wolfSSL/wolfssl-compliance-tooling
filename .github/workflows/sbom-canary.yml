@@ -4,8 +4,11 @@ name: SBOM product canary
 # each ready product and generate that product's SBOM. The product
 # repositories keep their pinned copy. This job does not push to them.
 #
-# wolfBoot is the plain-Make product. wolfTPM is the autotools product.
-# Add a product here only after it vendors tools/sbom/.
+# Both products build from their default branch, so a break there also
+# fails our share/ PRs until the product is fixed.
+#
+# wolfBoot covers the plain-Make and CMake fragments. wolfTPM is the
+# autotools product. Add a product here only after it vendors tools/sbom/.
 
 on:
   pull_request:
@@ -68,13 +71,14 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y build-essential autoconf automake libtool \
-              pkg-config
+              pkg-config cmake
 
       - name: Copy share into the product
         run: |
           python3 tooling/tools/wolfssl-compliance-tooling-sync \
             --src tooling \
-            --dest product
+            --dest product \
+            --prune
 
       - name: Fetch the wolfBoot wolfSSL submodule
         if: matrix.product == 'wolfboot'
@@ -87,6 +91,20 @@ jobs:
         run: |
           cp config/examples/sim.config .config
           make sbom
+
+      - name: Generate the wolfBoot SBOM with CMake
+        if: matrix.product == 'wolfboot'
+        working-directory: product
+        run: |
+          cmake -S . -B build-sim -G "Unix Makefiles" \
+            -DWOLFBOOT_TARGET=sim -DARCH=HOST -DSIGN=ED25519 -DHASH=SHA256 \
+            -DWOLFBOOT_SECTOR_SIZE=256 -DWOLFBOOT_PARTITION_SIZE=0x6400 \
+            -DWOLFBOOT_PARTITION_BOOT_ADDRESS=0x08003000 \
+            -DWOLFBOOT_PARTITION_UPDATE_ADDRESS=0x08009400 \
+            -DWOLFBOOT_PARTITION_SWAP_ADDRESS=0x0800F800
+          cmake --build build-sim --target sbom
+          python3 tools/sbom/validate_sbom.py --name-prefix wolfboot \
+            build-sim/wolfboot-*.cdx.json build-sim/wolfboot-*.spdx.json
 
       - name: Build and install wolfSSL
         if: matrix.product == 'wolftpm'
