@@ -568,3 +568,8 @@ function(wolfssl_compliance_tooling_add_sbom_install)
         VERBATIM
         COMMENT "Uninstalling ${SI_NAME} SBOM from ${_docdir}")
 endfunction()
+
+# Products vendored before the rename still call wolfglass_add_sbom().
+macro(wolfglass_add_sbom)
+    wolfssl_compliance_tooling_add_sbom(${ARGN})
+endmacro()
