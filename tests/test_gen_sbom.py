@@ -1656,6 +1656,16 @@ class TestCliMutualExclusion(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('--options-h or --user-settings', result.stderr)
 
+    def test_weak_entropy_opt_in_warns_at_generation_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            options = pathlib.Path(directory) / 'options.h'
+            options.write_text('#define WOLFSSL_ACCEPT_WEAK_ENTROPY 1\n')
+            result = self._run(
+                *self.BASE, '--options-h', str(options),
+                '--no-artifact-hash')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('WARNING: WOLFSSL_ACCEPT_WEAK_ENTROPY', result.stderr)
+
     def test_lib_and_srcs_together_fail(self):
         result = self._run(
             *self.BASE,
@@ -2155,6 +2165,34 @@ class TestGenerateCdx(unittest.TestCase):
         # '#define WOLFBOOT_LOAD_ADDRESS' read as the address being 1.
         self.assertEqual(names['wolfssl:build:NO_DES3'], '')
 
+    def test_weak_entropy_opt_in_has_visible_security_warning(self):
+        doc = gs.generate_cdx(**{
+            **self.BASE_KW,
+            'build_props': [('WOLFSSL_ACCEPT_WEAK_ENTROPY', '1')],
+        })
+        props = {p['name']: p['value']
+                 for p in doc['metadata']['component']['properties']}
+        self.assertEqual(props['wolfssl:security:weak-entropy'], 'permitted')
+        self.assertIn('WARNING', props['wolfssl:security:weak-entropy-note'])
+        clean = gs.generate_cdx(**self.BASE_KW)
+        clean_props = {p['name'] for p in clean['metadata']['component']['properties']}
+        self.assertNotIn('wolfssl:security:weak-entropy', clean_props)
+
+    def test_weak_entropy_flag_overrides_recorded_macros(self):
+        # main() reads the flag from the full capture, so the marker stays
+        # when the recorded macros no longer hold the opt-in.
+        doc = gs.generate_cdx(**{**self.BASE_KW, 'weak_entropy': True})
+        props = {p['name']: p['value']
+                 for p in doc['metadata']['component']['properties']}
+        self.assertEqual(props['wolfssl:security:weak-entropy'], 'permitted')
+        # False cannot hide an opt-in that the recorded macros carry.
+        doc = gs.generate_cdx(**{
+            **self.BASE_KW, 'weak_entropy': False,
+            'build_props': [('WOLFSSL_ACCEPT_WEAK_ENTROPY', '1')],
+        })
+        props = {p['name'] for p in doc['metadata']['component']['properties']}
+        self.assertIn('wolfssl:security:weak-entropy', props)
+
     def test_dependency_refs_match_components(self):
         # Critical invariant: every bom-ref in `dependencies` must
         # appear as a `bom-ref` on either the main component or one
@@ -2494,6 +2532,23 @@ class TestGenerateSpdx(unittest.TestCase):
         # it is reserved for the human-readable build-config defines.
         self.assertNotIn('hash-kind=', wolfssl_pkg['comment'])
         self.assertNotIn('source-set=', wolfssl_pkg['comment'])
+
+    def test_weak_entropy_opt_in_has_visible_security_annotation(self):
+        doc = gs.generate_spdx(**{
+            **self.BASE_KW,
+            'build_props': [('WOLFSSL_ACCEPT_WEAK_ENTROPY', '1')],
+        })
+        package = next(p for p in doc['packages']
+                       if p['SPDXID'] == 'SPDXRef-Package-wolfssl')
+        comments = [a['comment'] for a in package['annotations']]
+        self.assertIn('wolfssl:security:weak-entropy=permitted', comments)
+        self.assertTrue(any(c.startswith('wolfssl:security:weak-entropy-note=WARNING')
+                            for c in comments))
+        clean = gs.generate_spdx(**self.BASE_KW)
+        clean_package = next(p for p in clean['packages']
+                             if p['SPDXID'] == 'SPDXRef-Package-wolfssl')
+        self.assertFalse(any('weak-entropy' in a['comment']
+                             for a in clean_package['annotations']))
 
     def test_library_binary_path_annotates_via_annotations(self):
         # Companion to the source-merkle test: library-binary also
@@ -3152,6 +3207,37 @@ class TestMacroPrefix(unittest.TestCase):
                     '--user-settings-define', 'WOLFSSL_USER_SETTINGS'])
         self.assertEqual(self._build(props), ['WOLFCERT_SCEP'])
 
+    def _serial(self):
+        with open(os.path.join(self.dir, 'out.cdx.json')) as f:
+            return json.load(f)['serialNumber']
+
+    def test_filter_keeps_the_weak_entropy_marker(self):
+        weak_h = self._write(
+            'weak.h',
+            '#define WOLFSSL_ACCEPT_WEAK_ENTROPY\n#define WOLFCERT_SCEP 1\n')
+        props, spdx, _ = self._generate('--macro-prefix', 'WOLFCERT_',
+                                        config=['--options-h', weak_h])
+        self.assertEqual(self._build(props), ['WOLFCERT_SCEP'])
+        self.assertEqual(props['wolfssl:security:weak-entropy'], 'permitted')
+        comments = [a['comment'] for p in spdx['packages']
+                    for a in p.get('annotations', [])]
+        self.assertIn('wolfssl:security:weak-entropy=permitted', comments)
+        weak_serial = self._serial()
+
+        clean_h = self._write('clean.h', '#define WOLFCERT_SCEP 1\n')
+        props, _, _ = self._generate('--macro-prefix', 'WOLFCERT_',
+                                     config=['--options-h', clean_h])
+        self.assertNotIn('wolfssl:security:weak-entropy', props)
+        # Same recorded macros, different marker: different documents.
+        self.assertNotEqual(self._serial(), weak_serial)
+
+    def test_empty_capture_notes_the_unchecked_opt_in(self):
+        empty_h = self._write('empty.h', '')
+        props, _, proc = self._generate(config=['--options-h', empty_h])
+        self.assertIn('WOLFSSL_ACCEPT_WEAK_ENTROPY could not be checked',
+                      proc.stderr)
+        self.assertNotIn('wolfssl:security:weak-entropy', props)
+
 
 class TestResolveCryptoOnly(unittest.TestCase):
     """--crypto-only auto reads the macro; explicit values win."""
@@ -3320,10 +3406,10 @@ class TestWolfbootCoatContract(unittest.TestCase):
         self.assertEqual([c['name'] for c in doc['components']], ['wolfcrypt'])
         self.assertNotIn('cpe', doc['components'][0])
 
-    def test_tool_version_is_1_9(self):
+    def test_tool_version_is_1_10(self):
         doc = gs.generate_cdx(**self.BASE_KW)
         tools = doc['metadata']['tools']['components']
-        self.assertEqual(tools[0]['version'], '1.9')
+        self.assertEqual(tools[0]['version'], '1.10')
 
 
 if __name__ == '__main__':
