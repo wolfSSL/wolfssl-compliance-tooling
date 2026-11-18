@@ -96,12 +96,10 @@ jobs:
         if: matrix.product == 'wolfboot'
         working-directory: product
         run: |
-          cmake -S . -B build-sim -G "Unix Makefiles" \
-            -DWOLFBOOT_TARGET=sim -DARCH=HOST -DSIGN=ED25519 -DHASH=SHA256 \
-            -DWOLFBOOT_SECTOR_SIZE=256 -DWOLFBOOT_PARTITION_SIZE=0x6400 \
-            -DWOLFBOOT_PARTITION_BOOT_ADDRESS=0x08003000 \
-            -DWOLFBOOT_PARTITION_UPDATE_ADDRESS=0x08009400 \
-            -DWOLFBOOT_PARTITION_SWAP_ADDRESS=0x0800F800
+          # wolfBoot's CMake reads .config when it exists (config mode
+          # "dot"), so this build uses the sim.config of the Make step.
+          test -f .config
+          cmake -S . -B build-sim -G "Unix Makefiles"
           cmake --build build-sim --target sbom
           python3 tools/sbom/validate_sbom.py --name-prefix wolfboot \
             build-sim/wolfboot-*.cdx.json build-sim/wolfboot-*.spdx.json
@@ -158,7 +156,9 @@ jobs:
           NAME_PREFIX: ${{ matrix.name-prefix }}
         run: |
           shopt -s nullglob
-          files=("${NAME_PREFIX}"-*.cdx.json "${NAME_PREFIX}"-*.spdx.json)
+          files=("${NAME_PREFIX}"-*.cdx.json "${NAME_PREFIX}"-*.spdx.json
+                 build-sim/"${NAME_PREFIX}"-*.cdx.json
+                 build-sim/"${NAME_PREFIX}"-*.spdx.json)
           # A published SBOM must not contain build-machine absolute paths.
           # grep exit 0 = match (fail), 1 = clean, >=2 = real error.
           set +e
@@ -181,4 +181,6 @@ jobs:
           path: |
             product/${{ matrix.name-prefix }}-*.cdx.json
             product/${{ matrix.name-prefix }}-*.spdx.json
+            product/build-sim/${{ matrix.name-prefix }}-*.cdx.json
+            product/build-sim/${{ matrix.name-prefix }}-*.spdx.json
           if-no-files-found: error
