@@ -42,6 +42,7 @@ reach gen-sbom (for example -DPICO_SDK_PATH=/home/you/pico-sdk from arch.mk). Us
 """
 
 import argparse
+import functools
 import os
 import re
 import subprocess
@@ -123,14 +124,39 @@ def find_gen_sbom(explicit):
     return sibling  # report the sibling path in the error message
 
 
-def gen_sbom_supports(python, gen_sbom, flag):
-    """Return True if the generator advertises a flag in its --help."""
+@functools.lru_cache(maxsize=None)
+def _gen_sbom_help(python, gen_sbom):
     try:
         res = subprocess.run([python, gen_sbom, "--help"],
                              capture_output=True, text=True, check=False)
     except OSError:
-        return False
-    return flag in (res.stdout + res.stderr)
+        return ""
+    return res.stdout + res.stderr
+
+
+def gen_sbom_supports(python, gen_sbom, flag):
+    """Return True if the generator advertises a flag in its --help."""
+    return flag in _gen_sbom_help(python, gen_sbom)
+
+
+def default_source_date_epoch(root):
+    """Return the last commit time of the checkout that tracks root, or "".
+
+    Uses the same rule as build/sbom-with-sde.cmake and sbom.am: root must
+    hold tracked files, so a tarball unpacked inside another checkout does
+    not take that checkout's time.
+    """
+    def git(*argv):
+        try:
+            res = subprocess.run(["git", "-C", root, *argv],
+                                 capture_output=True, text=True, check=False)
+        except OSError:
+            return None
+        return res.stdout.strip() if res.returncode == 0 else None
+
+    if git("ls-files", "--error-unmatch", "--", ".") is None:
+        return ""
+    return git("log", "-1", "--format=%ct") or ""
 
 
 def split_cflags(cflags):
@@ -513,7 +539,15 @@ def main():
             print(f"  sources: {src_count} file(s)")
         print(f"  outputs: {cdx_out}  {spdx_out}")
 
-        rc = subprocess.call(cmd)
+        # Make, CMake and the IDE front ends all reach gen-sbom here, so one
+        # checkout gets one timestamp whichever build system runs.
+        env = None
+        if not os.environ.get("SOURCE_DATE_EPOCH"):
+            sde = default_source_date_epoch(root)
+            if sde:
+                env = dict(os.environ, SOURCE_DATE_EPOCH=sde)
+
+        rc = subprocess.call(cmd, env=env)
     finally:
         for f in tmp_files:
             try:

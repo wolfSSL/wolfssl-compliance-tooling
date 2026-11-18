@@ -14,7 +14,13 @@ if(DEFINED ENV{DESTDIR})
 else()
     set(_destdir "")
 endif()
-set(_dest "${_destdir}${WOLFSSL_COMPLIANCE_TOOLING_INSTALL_DIR}")
+# Same rule as file(INSTALL) in install-sbom.cmake: on Windows, drop a
+# drive letter before DESTDIR is added.
+set(_install_dir "${WOLFSSL_COMPLIANCE_TOOLING_INSTALL_DIR}")
+if(CMAKE_HOST_WIN32 AND NOT _destdir STREQUAL "")
+    string(REGEX REPLACE "^[A-Za-z]:" "" _install_dir "${_install_dir}")
+endif()
+set(_dest "${_destdir}${_install_dir}")
 
 get_filename_component(_cdx_name "${_cdx}" NAME)
 get_filename_component(_spdx_name "${_spdx}" NAME)

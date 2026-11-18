@@ -93,6 +93,34 @@ class InstallScriptTests(unittest.TestCase):
         self.assertFalse((installed / spdx.name).exists())
         self.assertFalse((installed / tv.name).exists())
 
+    @unittest.skipUnless(os.name == "nt", "drive letters are a Windows rule")
+    def test_destdir_drops_the_drive_letter_in_install_and_uninstall(self):
+        cdx = self.dir / "w-1.0.cdx.json"
+        spdx = self.dir / "w-1.0.spdx.json"
+        cdx.write_text("{}\n")
+        spdx.write_text("{}\n")
+        stage = self.dir / "stage"
+        doc = Path(os.environ.get("SystemDrive", "C:") + "/sbom-test/doc")
+        args = [
+            f"-DWOLFSSL_COMPLIANCE_TOOLING_INSTALL_DIR={doc.as_posix()}",
+            f"-DWOLFSSL_COMPLIANCE_TOOLING_SBOM_CDX={cdx}",
+            f"-DWOLFSSL_COMPLIANCE_TOOLING_SBOM_SPDX={spdx}",
+            "-DWOLFSSL_COMPLIANCE_TOOLING_SBOM_TV=",
+            "-DWOLFSSL_COMPLIANCE_TOOLING_SBOM_NAME=w",
+        ]
+        result = self._install(args, destdir=str(stage))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        installed = stage / "sbom-test" / "doc"
+        self.assertTrue((installed / cdx.name).is_file())
+        self.assertIn(str(installed.as_posix()), result.stdout)
+        env = os.environ.copy()
+        env["DESTDIR"] = str(stage)
+        result = run([CMAKE, *args, "-P", str(BUILD / "uninstall-sbom.cmake")],
+                     env=env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertFalse((installed / cdx.name).exists())
+        self.assertFalse((installed / spdx.name).exists())
+
     def test_version_header_names_match_the_driver_default(self):
         header = self.dir / "version.h"
         header.write_text('#define LIBWOLFTPM_VERSION_STRING "3.4.5"\n')
