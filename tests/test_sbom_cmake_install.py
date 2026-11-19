@@ -505,6 +505,17 @@ open(args["--outfile"], "w").write("SPDXVersion: SPDX-2.3\\n")
 """
 
 
+# ALL_COMPONENTS needs CMake 3.21; before that the hook is in the default
+# component, which the staging skips as well.
+HOOK = """
+if(CMAKE_VERSION VERSION_LESS 3.21)
+    install(CODE "message(FATAL_ERROR \\"{0} ran\\")")
+else()
+    install(CODE "message(FATAL_ERROR \\"{0} ran\\")" ALL_COMPONENTS)
+endif()
+"""
+
+
 class HelperBuildTests(unittest.TestCase):
     """Build the sbom and install-sbom targets of a small C project."""
 
@@ -657,22 +668,39 @@ wolfssl_compliance_tooling_add_sbom(
         self.assertFalse((self.build / "demo-1.spdx").exists())
         self.assertEqual(list(self.build.glob("_sbom_staging*")), [])
 
-    def test_staging_without_a_build_fails_and_cleans_up(self):
+    def test_staging_needs_only_the_stage_target(self):
         self._project("""
 wolfssl_compliance_tooling_add_sbom(
     NAME demo
     VERSION 1
     STAGE_TARGET demo
     OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
-add_executable(other x.c)
+add_executable(other main.c)
 install(TARGETS other RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 """)
+        (self.src / "main.c").write_text("int main(void) { return 0; }\n")
         self._configure()
         built = self._build("sbom")
-        self.assertNotEqual(built.returncode, 0)
-        self.assertIn("SBOM staging install failed",
-                      built.stdout + built.stderr)
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertTrue((self.build / "demo-1.cdx.json").is_file())
+        self.assertFalse((self.build / "other").exists())
         self.assertEqual(list(self.build.glob("_sbom_staging*")), [])
+        self.assertEqual(list(self.build.glob("install_manifest*")), [])
+
+    def test_failed_staging_install_fails_and_cleans_up(self):
+        stage = self.dir / "stage"
+        result = run([
+            CMAKE, f"-DSBOM_STAGE_DIR={stage}",
+            f"-DSBOM_STAGE_BUILD_DIR={self.dir / 'missing'}",
+            "-DSBOM_STAGE_COMPONENT=_sbom_stage_sbom",
+            f"-DSBOM_STAGE_LIB={stage}/lib/libdemo.so",
+            "-P", str(BUILD / "sbom-with-sde.cmake"), "--", sys.executable,
+            "-c", "pass",
+        ], env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("SBOM staging install failed",
+                      result.stdout + result.stderr)
+        self.assertFalse(stage.exists())
 
     def test_parallel_staged_targets_do_not_share_a_staging_dir(self):
         self._project("""
@@ -688,6 +716,10 @@ endforeach()
 """)
         self._configure()
         self.assertEqual(self._build().returncode, 0)
+        installed = run([CMAKE, "--install", str(self.build),
+                         "--prefix", str(self.dir / "other")], env=self.env)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        manifest = (self.build / "install_manifest.txt").read_text()
         for _ in range(5):
             built = run([CMAKE, "--build", str(self.build), "-j2",
                          "--target", "sbom-a", "sbom-b"], env=self.env)
@@ -695,6 +727,11 @@ endforeach()
         for name in ("demo-a-1.cdx.json", "demo-b-1.cdx.json"):
             self.assertTrue((self.build / name).is_file(), name)
         self.assertEqual(list(self.build.glob("_sbom_staging*")), [])
+        self.assertEqual(
+            (self.build / "install_manifest.txt").read_text(), manifest)
+        self.assertEqual(
+            [p.name for p in self.build.glob("install_manifest*")],
+            ["install_manifest.txt"])
 
     def _configure_fails(self, call, message):
         self._project(call)
@@ -726,6 +763,355 @@ wolfssl_compliance_tooling_add_sbom(
     TARGETS demo
     OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
 """, "Do not pass LIB or TARGETS")
+
+    def test_staging_keeps_the_install_manifest(self):
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}")
+        self.assertEqual(self._build().returncode, 0)
+        installed = run([CMAKE, "--install", str(self.build),
+                         "--prefix", str(self.dir / "other")], env=self.env)
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        manifest = (self.build / "install_manifest.txt").read_text()
+        self.assertIn(str(self.dir / "other"), manifest)
+
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertEqual(
+            (self.build / "install_manifest.txt").read_text(), manifest)
+        self.assertEqual(
+            [p.name for p in self.build.glob("install_manifest*")],
+            ["install_manifest.txt"])
+
+    def test_staging_prefix_with_an_absolute_product_destination(self):
+        (self.src / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(demo C)
+include(GNUInstallDirs)
+add_library(demo SHARED x.c)
+install(TARGETS demo LIBRARY DESTINATION ${{CMAKE_INSTALL_FULL_LIBDIR}})
+include("{BUILD / "sbom.cmake"}")
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+""")
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}",
+                        f"-DCMAKE_STAGING_PREFIX={self.dir / 'sysroot'}")
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        real = self.dir / "real"
+        installed = run([CMAKE, "--install", str(self.build)],
+                        env=dict(self.env, DESTDIR=str(real)))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        libs = [p for p in real.rglob("libdemo*")
+                if p.is_file() and not p.is_symlink()]
+        self.assertEqual(len(libs), 1, libs)
+        digest = hashlib.sha256(libs[0].read_bytes()).hexdigest()
+        self.assertIn(digest, (self.build / "demo-1.cdx.json").read_text())
+
+    def test_staging_prefix_moves_the_staged_and_installed_files(self):
+        staging = self.dir / "sysroot"
+        self._project(f"""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    VALIDATE
+    PYSPDXTOOLS {self._fake_pyspdxtools()}
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+""")
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}",
+                        f"-DCMAKE_STAGING_PREFIX={staging}")
+        self.assertEqual(self._build().returncode, 0)
+        dest = self.dir / "dest"
+        built = self._build("install-sbom", env=dict(self.env,
+                                                     DESTDIR=str(dest)))
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        docdir = Path(str(dest) + str(staging)) / "share" / "doc" / "demo"
+        for name in ("demo-1.cdx.json", "demo-1.spdx.json", "demo-1.spdx"):
+            self.assertTrue((docdir / name).is_file(), docdir / name)
+
+        real = self.dir / "real"
+        installed = run([CMAKE, "--install", str(self.build)],
+                        env=dict(self.env, DESTDIR=str(real)))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        libs = [p for p in Path(str(real) + str(staging)).rglob("libdemo*")
+                if p.is_file() and not p.is_symlink()]
+        self.assertEqual(len(libs), 1, libs)
+        digest = hashlib.sha256(libs[0].read_bytes()).hexdigest()
+        self.assertIn(digest, (self.build / "demo-1.cdx.json").read_text())
+
+    def _parent_project(self, add_subdirectory):
+        parent = self.dir / "parent"
+        parent.mkdir()
+        (parent / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(parent C)
+{HOOK.format("parent hook")}
+{add_subdirectory}
+""")
+        return parent
+
+    def test_subproject_stages_without_the_parent(self):
+        parent = self._parent_project(f'add_subdirectory("{self.src}" demo)')
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        configured = run([CMAKE, "-S", str(parent), "-B", str(self.build),
+                          "-G", "Unix Makefiles"], env=self.env)
+        self.assertEqual(configured.returncode, 0,
+                         configured.stderr + configured.stdout)
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertTrue((self.build / "demo" / "demo-1.cdx.json").is_file())
+
+    def test_exclude_from_all_subproject_stages(self):
+        parent = self._parent_project(
+            f'add_subdirectory("{self.src}" demo EXCLUDE_FROM_ALL)')
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        configured = run([CMAKE, "-S", str(parent), "-B", str(self.build),
+                          "-G", "Unix Makefiles"], env=self.env)
+        self.assertEqual(configured.returncode, 0,
+                         configured.stderr + configured.stdout)
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertTrue((self.build / "demo" / "demo-1.cdx.json").is_file())
+
+    def test_alias_stage_target_stages_the_real_target(self):
+        self._project("""
+add_library(demo::demo ALIAS demo)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo::demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        self._configure()
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertTrue((self.build / "demo-1.cdx.json").is_file())
+
+    def test_public_header_does_not_warn(self):
+        self._project("""
+set_target_properties(demo PROPERTIES PUBLIC_HEADER opts.h)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        result = run([CMAKE, "-S", str(self.src), "-B", str(self.build),
+                      "-G", "Unix Makefiles", "-Werror=dev"], env=self.env)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+
+    def test_unbuilt_public_header_is_not_staged(self):
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", prelude="""
+set(_h ${CMAKE_CURRENT_BINARY_DIR}/gen.h)
+add_custom_command(OUTPUT ${_h} COMMAND ${CMAKE_COMMAND} -E touch ${_h})
+add_custom_target(genh ALL DEPENDS ${_h})
+""")
+        cml = self.src / "CMakeLists.txt"
+        cml.write_text(cml.read_text().replace(
+            "add_library(demo SHARED x.c)\n",
+            "add_library(demo SHARED x.c)\n"
+            "set_target_properties(demo PROPERTIES PUBLIC_HEADER ${_h})\n"))
+        self._configure()
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertFalse((self.build / "gen.h").exists())
+
+    def test_all_components_rules_beside_the_call_do_not_run(self):
+        sub = self.src / "sub"
+        sub.mkdir()
+        (sub / "CMakeLists.txt").write_text(HOOK.format("child hook"))
+        self._project("""
+add_subdirectory(sub)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", prelude=HOOK.format("sibling hook"))
+        self._configure()
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertTrue((self.build / "demo-1.cdx.json").is_file())
+
+    def test_interface_stage_target_is_rejected(self):
+        self._configure_fails("""
+add_library(iface INTERFACE)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET iface
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", "must be a library")
+
+    @unittest.skipUnless(sys.platform == "darwin", "frameworks are Apple-only")
+    def test_framework_stage_target_is_rejected(self):
+        self._configure_fails("""
+set_target_properties(demo PROPERTIES FRAMEWORK TRUE)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", "must be a library")
+
+    def _installed_digest(self):
+        real = self.dir / "real"
+        installed = run([CMAKE, "--install", str(self.build)],
+                        env=dict(self.env, DESTDIR=str(real)))
+        self.assertEqual(installed.returncode, 0, installed.stderr)
+        libs = [p for p in real.rglob("libdemo*")
+                if p.is_file() and not p.is_symlink()]
+        self.assertEqual(len(libs), 1, libs)
+        return hashlib.sha256(libs[0].read_bytes()).hexdigest()
+
+    def test_stage_target_from_another_directory(self):
+        lib = self.src / "lib"
+        lib.mkdir()
+        (lib / "x.c").write_text("int x(void) { return 1; }\n")
+        (lib / "CMakeLists.txt").write_text("""
+add_library(demo SHARED x.c)
+install(TARGETS demo LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
+""")
+        (self.src / "CMakeLists.txt").write_text(f"""
+cmake_minimum_required(VERSION 3.16)
+project(demo C)
+include(GNUInstallDirs)
+add_subdirectory(lib)
+include("{BUILD / "sbom.cmake"}")
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+""")
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}")
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn(self._installed_digest(),
+                      (self.build / "demo-1.cdx.json").read_text())
+
+    def test_prefix_set_after_the_call(self):
+        self._project(f"""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+set(CMAKE_INSTALL_PREFIX "{self.dir / 'late'}")
+""")
+        self._configure()
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn(self._installed_digest(),
+                      (self.build / "demo-1.cdx.json").read_text())
+
+    def test_empty_prefix_set_after_the_call(self):
+        self._project(f"""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${{CMAKE_CURRENT_SOURCE_DIR}}/opts.h)
+set(CMAKE_INSTALL_PREFIX "{self.dir / 'late'}" CACHE PATH "" FORCE)
+""")
+        self._configure("-DCMAKE_INSTALL_PREFIX=")
+        built = self._build("sbom")
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        self.assertIn(self._installed_digest(),
+                      (self.build / "demo-1.cdx.json").read_text())
+
+    def test_full_docdir_without_docdir(self):
+        self._project("""
+set(CMAKE_INSTALL_FULL_DOCDIR "/opt/docs/demo")
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    TARGETS demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        cml = self.src / "CMakeLists.txt"
+        cml.write_text(cml.read_text().replace("include(GNUInstallDirs)\n",
+                                               ""))
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}")
+        dest = self.dir / "dest"
+        built = self._build("install-sbom", env=dict(self.env,
+                                                     DESTDIR=str(dest)))
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        docdir = Path(str(dest) + "/opt/docs/demo")
+        self.assertTrue((docdir / "demo-1.cdx.json").is_file(),
+                        sorted(dest.rglob("*")))
+
+    def test_full_docdir_override_after_gnuinstalldirs(self):
+        self._project("""
+set(CMAKE_INSTALL_FULL_DOCDIR "/opt/docs/demo")
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    TARGETS demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        self._configure(f"-DCMAKE_INSTALL_PREFIX={self.dir / 'prefix'}")
+        dest = self.dir / "dest"
+        built = self._build("install-sbom", env=dict(self.env,
+                                                     DESTDIR=str(dest)))
+        self.assertEqual(built.returncode, 0, built.stdout + built.stderr)
+        docdir = Path(str(dest) + "/opt/docs/demo")
+        self.assertTrue((docdir / "demo-1.cdx.json").is_file(),
+                        sorted(dest.rglob("*")))
+
+    def test_imported_stage_target_is_rejected(self):
+        self._configure_fails("""
+add_library(imp SHARED IMPORTED)
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET imp
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""", "must be a library")
+
+    def test_skipped_install_rules_are_rejected(self):
+        self._project("""
+wolfssl_compliance_tooling_add_sbom(
+    NAME demo
+    VERSION 1
+    STAGE_TARGET demo
+    OPTIONS_H ${CMAKE_CURRENT_SOURCE_DIR}/opts.h)
+""")
+        result = run([CMAKE, "-S", str(self.src), "-B", str(self.build),
+                      "-G", "Unix Makefiles",
+                      "-DCMAKE_SKIP_INSTALL_RULES=ON"], env=self.env)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CMAKE_SKIP_INSTALL_RULES",
+                      result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

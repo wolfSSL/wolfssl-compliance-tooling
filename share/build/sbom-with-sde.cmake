@@ -83,7 +83,15 @@ if(NOT SBOM_STAGE_DIR STREQUAL "")
     if(DEFINED SBOM_STAGE_CONFIG AND NOT SBOM_STAGE_CONFIG STREQUAL "")
         list(APPEND _install --config "${SBOM_STAGE_CONFIG}")
     endif()
+    list(APPEND _install --component "${SBOM_STAGE_COMPONENT}")
+    # Pins the configure-time prefix, which a later set() would otherwise move.
+    if(NOT DEFINED SBOM_STAGE_PREFIX OR SBOM_STAGE_PREFIX STREQUAL "")
+        set(SBOM_STAGE_PREFIX /)
+    endif()
+    list(APPEND _install --prefix "${SBOM_STAGE_PREFIX}")
     execute_process(COMMAND ${_install} RESULT_VARIABLE _rc)
+    file(REMOVE
+        "${SBOM_STAGE_BUILD_DIR}/install_manifest_${SBOM_STAGE_COMPONENT}.txt")
     if(_saved_destdir_set)
         set(ENV{DESTDIR} "${_saved_destdir}")
     else()
@@ -92,14 +100,13 @@ if(NOT SBOM_STAGE_DIR STREQUAL "")
     if(NOT _rc EQUAL 0)
         file(REMOVE_RECURSE "${SBOM_STAGE_DIR}")
         message(FATAL_ERROR
-            "SBOM staging install failed (${_rc}). Build the project first.")
+            "SBOM staging install failed (${_rc}).")
     endif()
     if(NOT EXISTS "${SBOM_STAGE_LIB}")
         file(REMOVE_RECURSE "${SBOM_STAGE_DIR}")
         message(FATAL_ERROR
-            "SBOM staging: ${SBOM_STAGE_LIB} was not installed. Install the "
-            "STAGE_TARGET to CMAKE_INSTALL_LIBDIR, or to CMAKE_INSTALL_BINDIR "
-            "for a program or a Windows DLL.")
+            "SBOM staging: ${SBOM_STAGE_LIB} was not installed. Pass LIB "
+            "instead.")
     endif()
 endif()
 

@@ -101,17 +101,26 @@ A product does not copy logic. It describes itself:
 - CMake: `include(tools/sbom/build/sbom.cmake)` and call `wolfssl_compliance_tooling_add_sbom()`
   with `NAME`, `VERSION_FILE`, `VERSION_MACRO`, `TARGETS`, `DEFS`, `LICENSE`.
   The same call adds `install-sbom` and `uninstall-sbom`. They copy the
-  CycloneDX and SPDX files to `CMAKE_INSTALL_FULL_DOCDIR` (or
-  `<prefix>/share/doc/<NAME>`) and read `DESTDIR` when the target runs.
+  CycloneDX and SPDX files to `CMAKE_INSTALL_DOCDIR` (or
+  `share/doc/<NAME>`) under the install or staging prefix, or to a
+  `CMAKE_INSTALL_FULL_DOCDIR` the project set itself, and read `DESTDIR` when
+  the target runs.
   Pass `CDX_OUT` / `SPDX_OUT`
   when the file name is not `<name>-<version>` (wolfBoot's config tag).
   To hash the installed library and validate the SPDX file as `make sbom`
   does, pass `STAGE_TARGET <library target>` and `VALIDATE`. Then
-  `install-sbom` also installs the tag-value file. A missing python3 or
-  pyspdxtools does not fail configure; the `sbom` target fails when it is built.
-  A product that writes the tag-value file in its own later target can pass
-  `NO_INSTALL` and call `wolfssl_compliance_tooling_add_sbom_install(DEPENDS sbom TV ...)`
-  after that target exists.
+  `install-sbom` also installs the tag-value file. The staging installs only
+  that target's binaries, through a private `EXCLUDE_FROM_ALL` install
+  component in a build directory of its own, so no other target has to be
+  built, no other install rule runs and `install_manifest.txt` is left alone. The hash is that of a plain
+  `install(TARGETS)`; a product that changes the installed file, with
+  `install(CODE)` or `install(FILES)`, passes `LIB` instead. A product that
+  packages per component with CPack sets `CPACK_COMPONENTS_ALL`. A missing
+  python3 or pyspdxtools does not fail configure; the `sbom` target fails when
+  it is built. A product that writes the tag-value file in its own later
+  target can pass `NO_INSTALL` and call
+  `wolfssl_compliance_tooling_add_sbom_install(DEPENDS sbom TV ...)` after
+  that target exists.
   `SBOM_GEN` is the canonical generator override; `GEN_SBOM` remains a legacy
   alias for compatibility.
 - Autotools: set the `SBOM_*` variables and `include tools/sbom/sbom.am`.
