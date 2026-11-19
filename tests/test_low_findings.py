@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -208,6 +209,147 @@ class TestCompdbRootSlash(unittest.TestCase):
             self.assertEqual(r.returncode, 0, r.stderr)
             self.assertIn("# 1 sources", r.stdout)
             self.assertIn(src, r.stdout)
+
+
+# A gen-sbom stand-in: --help lists the flags and counts the calls; a run
+# records the SOURCE_DATE_EPOCH it got.
+_FAKE_GEN = """\
+import os, sys
+here = os.path.dirname(os.path.abspath(__file__))
+if "--help" in sys.argv:
+    with open(os.path.join(here, "help-calls"), "a") as f:
+        f.write("x")
+    print("--document-namespace --component-type --dep-wolfssl --dep-version")
+    sys.exit(0)
+with open(os.path.join(here, "sde"), "w") as f:
+    f.write(os.environ.get("SOURCE_DATE_EPOCH", ""))
+"""
+
+
+def _need_git(test):
+    if shutil.which("git") is None:
+        test.skipTest("git is not installed")
+
+
+def _git(cwd, *argv):
+    return subprocess.run(["git", *argv], cwd=cwd, capture_output=True,
+                          text=True, check=True).stdout.strip()
+
+
+def _commit(repo):
+    _git(repo, "init", "-q")
+    _git(repo, "config", "user.email", "sbom@example.invalid")
+    _git(repo, "config", "user.name", "sbom")
+    with open(os.path.join(repo, "a.c"), "w") as f:
+        f.write("int a;\n")
+    _git(repo, "add", "a.c")
+    _git(repo, "-c", "commit.gpgsign=false", "commit", "-q", "-m", "init",
+         "--date", "@1600000000")
+    return _git(repo, "log", "-1", "--format=%ct")
+
+
+class TestDriverGenSbomCalls(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dir = self._tmp.name
+        self.gen = os.path.join(self.dir, "gen-sbom")
+        with open(self.gen, "w") as f:
+            f.write(_FAKE_GEN)
+        drv._gen_sbom_help.cache_clear()
+
+    def _read(self, name):
+        path = os.path.join(self.dir, name)
+        if not os.path.exists(path):
+            return None
+        with open(path) as f:
+            return f.read()
+
+    def test_help_is_read_once(self):
+        for flag in ("--dep-wolfssl", "--dep-version", "--dep-libz"):
+            drv.gen_sbom_supports(sys.executable, self.gen, flag)
+        self.assertTrue(drv.gen_sbom_supports(sys.executable, self.gen,
+                                              "--component-type"))
+        self.assertFalse(drv.gen_sbom_supports(sys.executable, self.gen,
+                                               "--dep-libz"))
+        self.assertEqual(self._read("help-calls"), "x")
+
+    def _run_driver(self, root, env, pass_root=True, cwd=None):
+        srcs = os.path.join(self.dir, "srcs.txt")
+        with open(srcs, "w") as f:
+            f.write(os.path.join(root, "a.c") + "\n")
+        if not os.path.exists(os.path.join(root, "a.c")):
+            open(os.path.join(root, "a.c"), "w").close()
+        license_file = os.path.join(self.dir, "LICENSE")
+        with open(license_file, "w") as f:
+            f.write("GPLv3\n")
+        cmd = [sys.executable, os.path.join(SHARE, "sbom-driver.py"),
+               "--name", "t", "--version", "1.0", "--srcs-file", srcs,
+               "--source-only"]
+        if pass_root:
+            cmd += ["--root", root]
+        return subprocess.run(
+            [*cmd, "--gen-sbom", self.gen,
+             "--license-file", license_file,
+             "--dep-wolfssl", "yes", "--dep-version", "wolfssl=5.0.0",
+             "--component-type", "library",
+             "--cdx-out", os.path.join(self.dir, "o.cdx.json"),
+             "--spdx-out", os.path.join(self.dir, "o.spdx.json")],
+            capture_output=True, text=True, env=env, cwd=cwd)
+
+    def test_driver_reads_help_once_per_run(self):
+        root = os.path.join(self.dir, "src")
+        os.mkdir(root)
+        r = self._run_driver(root, dict(os.environ))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._read("help-calls"), "x")
+
+    def test_unset_value_uses_the_commit_time(self):
+        _need_git(self)
+        root = os.path.join(self.dir, "repo")
+        os.mkdir(root)
+        stamp = _commit(root)
+        env = dict(os.environ)
+        env.pop("SOURCE_DATE_EPOCH", None)
+        r = self._run_driver(root, env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._read("sde"), stamp)
+
+    def test_set_value_wins_over_git(self):
+        _need_git(self)
+        root = os.path.join(self.dir, "repo")
+        os.mkdir(root)
+        _commit(root)
+        r = self._run_driver(root, dict(os.environ, SOURCE_DATE_EPOCH="111"))
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._read("sde"), "111")
+
+    def test_omitted_root_does_not_use_the_working_directory(self):
+        # cwd is this checkout. With no --root the driver must not take
+        # its commit time.
+        root = os.path.join(self.dir, "src")
+        os.mkdir(root)
+        env = dict(os.environ)
+        env.pop("SOURCE_DATE_EPOCH", None)
+        r = self._run_driver(root, env, pass_root=False, cwd=REPO)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._read("sde"), "")
+
+    def test_untracked_root_inside_a_checkout_gets_no_value(self):
+        # A release tarball unpacked inside another checkout must not take
+        # that checkout's commit time.
+        _need_git(self)
+        outer = os.path.join(self.dir, "repo")
+        os.mkdir(outer)
+        _commit(outer)
+        root = os.path.join(outer, "unpacked")
+        os.mkdir(root)
+        self.assertEqual(drv.default_source_date_epoch(root), "")
+        env = dict(os.environ)
+        env.pop("SOURCE_DATE_EPOCH", None)
+        r = self._run_driver(root, env)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self._read("sde"), "")
 
 
 if __name__ == "__main__":
