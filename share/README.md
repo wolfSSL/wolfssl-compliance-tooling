@@ -73,9 +73,10 @@ Copyright: the line reads `Copyright (C) <start>-<build year> <supplier>`.
 `COPYRIGHT_START`) sets the first year, which defaults to 2006.
 
 Timestamp: `SOURCE_DATE_EPOCH` sets the creation time and the build year. When
-it is not set, the driver uses the last commit time of the checkout that
-tracks `--root`, so Make, CMake and the IDE front ends give one checkout the
-same time. A tree that git does not track gets the current time.
+it is not set and `--root` is passed, the driver uses the last commit time of
+the checkout that tracks that directory, so Make, CMake and a front end that
+passes `--root` give one checkout the same time. With no `--root`, or a tree
+that git does not track, gen-sbom uses the current time.
 
 The driver captures macros with the host compiler, so the SBOM is reproducible
 across toolchains. It scrubs absolute host paths from the captured macros unless

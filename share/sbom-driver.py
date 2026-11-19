@@ -146,17 +146,25 @@ def default_source_date_epoch(root):
     hold tracked files, so a tarball unpacked inside another checkout does
     not take that checkout's time.
     """
-    def git(*argv):
+    def git(args, capture):
+        # ls-files prints every tracked path and only its status is used.
+        # Leave both streams unread, so a file name this locale cannot
+        # decode does not raise UnicodeDecodeError.
         try:
-            res = subprocess.run(["git", "-C", root, *argv],
-                                 capture_output=True, text=True, check=False)
+            res = subprocess.run(
+                ["git", "-C", root, *args],
+                stdout=subprocess.PIPE if capture else subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                text=capture, check=False)
         except OSError:
             return None
-        return res.stdout.strip() if res.returncode == 0 else None
+        if res.returncode != 0:
+            return None
+        return res.stdout.strip() if capture else ""
 
-    if git("ls-files", "--error-unmatch", "--", ".") is None:
+    if git(["ls-files", "--error-unmatch", "--", "."], False) is None:
         return ""
-    return git("log", "-1", "--format=%ct") or ""
+    return git(["log", "-1", "--format=%ct"], True) or ""
 
 
 def split_cflags(cflags):
@@ -539,10 +547,11 @@ def main():
             print(f"  sources: {src_count} file(s)")
         print(f"  outputs: {cdx_out}  {spdx_out}")
 
-        # Make, CMake and the IDE front ends all reach gen-sbom here, so one
-        # checkout gets one timestamp whichever build system runs.
+        # Only an explicit --root selects the checkout. The working
+        # directory is not one: a front end run from inside another
+        # checkout would otherwise take that checkout's time.
         env = None
-        if not os.environ.get("SOURCE_DATE_EPOCH"):
+        if args.root and not os.environ.get("SOURCE_DATE_EPOCH"):
             sde = default_source_date_epoch(root)
             if sde:
                 env = dict(os.environ, SOURCE_DATE_EPOCH=sde)

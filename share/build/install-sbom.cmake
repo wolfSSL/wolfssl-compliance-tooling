@@ -17,7 +17,9 @@ wolfssl_compliance_tooling_sbom_resolve_outputs(_cdx _spdx _tv)
 # before it adds DESTDIR, so D:/stage + C:/x is D:/stage/x;
 # uninstall-sbom.cmake uses the same rule.
 if(DEFINED ENV{DESTDIR})
-    set(_destdir "$ENV{DESTDIR}")
+    # Forward slashes, as file(INSTALL) prints them, so the message matches
+    # the path it wrote on Windows too.
+    file(TO_CMAKE_PATH "$ENV{DESTDIR}" _destdir)
 else()
     set(_destdir "")
 endif()

@@ -10,7 +10,7 @@ include("${CMAKE_CURRENT_LIST_DIR}/sbom-paths.cmake")
 wolfssl_compliance_tooling_sbom_resolve_outputs(_cdx _spdx _tv)
 
 if(DEFINED ENV{DESTDIR})
-    set(_destdir "$ENV{DESTDIR}")
+    file(TO_CMAKE_PATH "$ENV{DESTDIR}" _destdir)
 else()
     set(_destdir "")
 endif()
