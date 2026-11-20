@@ -48,7 +48,8 @@ def safe_rel(rel):
 
 def _get(base, rel, timeout):
     url = base + rel
-    req = urllib.request.Request(url, headers={'User-Agent': 'wolfglass-csaf-fetch'})
+    req = urllib.request.Request(
+        url, headers={'User-Agent': 'wolfssl-compliance-tooling-csaf-fetch'})
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             if resp.status != 200:
@@ -110,6 +111,18 @@ def check_vex_file(csaf_path, vex_path):
         vex = json.loads(vex_path.read_text())
     except json.JSONDecodeError as e:
         return f'{vex_path.name}: {e}'
+    if not isinstance(csaf, dict) or not isinstance(vex, dict):
+        return f'{vex_path.name}: VEX and CSAF must be JSON objects'
+    csaf_vulns, csaf_err = _vuln_list(csaf, csaf_path.name)
+    if csaf_err:
+        return csaf_err
+    vex_vulns, vex_err = _vuln_list(vex, vex_path.name)
+    if vex_err:
+        return vex_err
+    for vuln in vex_vulns:
+        vid = vuln.get('id')
+        if not isinstance(vid, str) or not vid:
+            return f'{vex_path.name}: vulnerability entry has no id'
     csaf_ids = _cve_ids(csaf, 'cve')
     vex_ids = _cve_ids(vex, 'id')
     if not csaf_ids:
@@ -117,13 +130,24 @@ def check_vex_file(csaf_path, vex_path):
     if set(csaf_ids) != set(vex_ids) or len(csaf_ids) != len(vex_ids):
         return (f'{vex_path.name} CVE set does not match {csaf_path.name}')
     missing_score = []
-    for vuln in vex.get('vulnerabilities') or []:
+    for vuln in vex_vulns:
         ratings = vuln.get('ratings') or []
-        if not has_cvss_v4_score(ratings):
-            missing_score.append(vuln.get('id'))
+        if not isinstance(ratings, list) or not has_cvss_v4_score(ratings):
+            missing_score.append(vuln['id'])
     if missing_score:
-        return f'{vex_path.name} missing CVSS v4: {", ".join(missing_score)}'
+        return f'{vex_path.name}: missing CVSS v4: {", ".join(missing_score)}'
     return None
+
+
+def _vuln_list(doc, label):
+    """Return (entries, None) or (None, problem)."""
+    vulns = doc.get('vulnerabilities') or []
+    if not isinstance(vulns, list):
+        return None, f'{label}: vulnerabilities is not a list'
+    for vuln in vulns:
+        if not isinstance(vuln, dict):
+            return None, f'{label}: vulnerability entry is not an object'
+    return vulns, None
 
 
 def check_vex_tree(out_dir, rels):
@@ -163,7 +187,13 @@ def fetch_tree(base_url, out_dir, timeout=60, with_vex=False):
         for algo in ('sha256', 'sha512'):
             pull(f'{rel}.{algo}')
         if with_vex:
-            pull(vex_rel(rel))
+            try:
+                pull(vex_rel(rel))
+            except FetchError as e:
+                # A missing VEX file is reported with the others below.
+                # Any other failure still stops the download.
+                if 'returned 404' not in str(e):
+                    raise
         rels.append(rel)
     if not rels:
         raise FetchError('index.txt is empty')

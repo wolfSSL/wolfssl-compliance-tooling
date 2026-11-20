@@ -58,8 +58,11 @@ class FetchTests(unittest.TestCase):
             'white/2026/cve-2026-1.json.sha512': _sha(doc, 'sha512'),
         }
 
+        agents = []
+
         class Handler(http.server.BaseHTTPRequestHandler):
             def do_GET(self):
+                agents.append(self.headers.get('User-Agent'))
                 rel = self.path.split('?', 1)[0].lstrip('/')
                 if rel == '' or rel.endswith('/') or rel not in files:
                     code = 403 if rel == '' or rel.endswith('/') else 404
@@ -93,6 +96,10 @@ class FetchTests(unittest.TestCase):
             self.assertEqual(n, 1)
             self.assertEqual((out / 'white/2026/cve-2026-1.json').read_bytes(), doc)
             self.assertEqual((out / 'provider-metadata.json').read_bytes(), meta)
+            self.assertTrue(agents)
+            self.assertTrue(all(
+                a == 'wolfssl-compliance-tooling-csaf-fetch' for a in agents))
+            self.assertNotIn('wolfglass', agents[0])
 
     def test_cvss_v4_score_is_a_number_from_0_to_10(self):
         self.assertTrue(fetch.has_cvss_v4_score(
@@ -134,18 +141,44 @@ class FetchTests(unittest.TestCase):
             with self.assertRaises(fetch.FetchError):
                 fetch.check_vex_tree(root, [rel])
 
-    def test_fetch_fails_when_vex_is_missing(self):
+    def test_vex_reports_a_bad_document_instead_of_crashing(self):
+        csaf = {'vulnerabilities': [{'cve': 'CVE-2026-1'}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = pathlib.Path(tmp)
+            rel = 'white/2026/cve-2026-1.json'
+            (root / 'white/2026').mkdir(parents=True)
+            (root / rel).write_text(json.dumps(csaf))
+            vex_path = root / fetch.vex_rel(rel)
+            vex_path.write_text('[]\n')
+            err = fetch.check_vex_file(root / rel, vex_path)
+            self.assertIn('JSON objects', err)
+            vex_path.write_text(json.dumps({
+                'vulnerabilities': [{'ratings': [{'method': 'CVSSv4', 'score': 1}]}],
+            }))
+            err = fetch.check_vex_file(root / rel, vex_path)
+            self.assertIn('no id', err)
+            vex_path.write_text(json.dumps({'vulnerabilities': ['CVE-2026-1']}))
+            err = fetch.check_vex_file(root / rel, vex_path)
+            self.assertIn('not an object', err)
+
+    def test_fetch_names_every_missing_vex_file(self):
         doc = json.dumps({'vulnerabilities': [{'cve': 'CVE-2026-1'}]}).encode()
+        doc2 = json.dumps({'vulnerabilities': [{'cve': 'CVE-2026-2'}]}).encode()
         meta = json.dumps({'role': 'csaf_provider'}).encode()
         files = {
             'provider-metadata.json': meta,
             'provider-metadata.json.sha256': _sha(meta, 'sha256'),
             'provider-metadata.json.sha512': _sha(meta, 'sha512'),
-            'index.txt': b'white/2026/cve-2026-1.json\n',
+            'index.txt': (
+                b'white/2026/cve-2026-1.json\n'
+                b'white/2026/cve-2026-2.json\n'),
             'changes.csv': b'white/2026/cve-2026-1.json,2026-01-01T00:00:00Z\n',
             'white/2026/cve-2026-1.json': doc,
             'white/2026/cve-2026-1.json.sha256': _sha(doc, 'sha256'),
             'white/2026/cve-2026-1.json.sha512': _sha(doc, 'sha512'),
+            'white/2026/cve-2026-2.json': doc2,
+            'white/2026/cve-2026-2.json.sha256': _sha(doc2, 'sha256'),
+            'white/2026/cve-2026-2.json.sha512': _sha(doc2, 'sha512'),
         }
 
         class Handler(http.server.BaseHTTPRequestHandler):
@@ -172,7 +205,10 @@ class FetchTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             with self.assertRaises(fetch.FetchError) as cm:
                 fetch.fetch_tree(url, pathlib.Path(tmp) / 'out', timeout=5, with_vex=True)
-            self.assertIn('404', str(cm.exception))
+            text = str(cm.exception)
+            self.assertIn('missing VEX cve-2026-1.cdx.json', text)
+            self.assertIn('missing VEX cve-2026-2.cdx.json', text)
+            self.assertNotIn('404', text)
 
 
 if __name__ == '__main__':

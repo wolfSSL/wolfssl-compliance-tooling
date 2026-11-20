@@ -10,6 +10,11 @@ on:
   schedule:
     - cron: '17 6 1 * *'
   workflow_dispatch:
+    inputs:
+      vex:
+        description: 'Also check name.cdx.json beside each document'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -34,8 +39,12 @@ jobs:
           python3 central/csaf-verify \
             --root "${RUNNER_TEMP}/csaf"
 
+      # csaf-publish copies *.csaf.json only, so the live tree has no
+      # name.cdx.json yet. The monthly run does not ask for those files.
+      # Turn this input on after the publisher lands:
+      # https://github.com/wolfSSL/wolfssl-compliance-tooling/issues/59
       - name: Check VEX files
-        if: always()
+        if: ${{ always() && inputs.vex }}
         run: |
           python3 central/csaf-fetch \
             --url https://www.wolfssl.com/.well-known/csaf \
