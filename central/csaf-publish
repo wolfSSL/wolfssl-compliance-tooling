@@ -224,6 +224,51 @@ def _reset_tree(csaf_root):
             shutil.rmtree(d)
 
 
+def _listed_fingerprint(csaf_root):
+    """Return the fingerprint in provider-metadata.json, or None."""
+    path = csaf_root / 'provider-metadata.json'
+    if not path.is_file():
+        return None
+    try:
+        metadata = json.loads(path.read_text())
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(metadata, dict):
+        return None
+    keys = metadata.get('public_openpgp_keys') or []
+    if not isinstance(keys, list):
+        return None
+    for item in keys:
+        if isinstance(item, dict) and item.get('fingerprint'):
+            return str(item['fingerprint'])
+    return None
+
+
+def _planned_document(doc, tlp, timestamp, used_names):
+    """Return the index path for one document. Refuse two ids that share a name."""
+    tracking_id = doc['document']['tracking']['id']
+    year = _year_of(doc, timestamp)
+    dest_name = canonical_filename(tracking_id)
+    if dest_name in used_names:
+        sys.exit(
+            f'ERROR: tracking ids {used_names[dest_name]!r} and '
+            f'{tracking_id!r} both canonicalize to {dest_name}')
+    used_names[dest_name] = tracking_id
+    return f'{tlp}/{year}/{dest_name}'
+
+
+def _missing_prior_files(csaf_root, prior_index, new_rels):
+    """Indexed files this run does not replace and that are not on disk."""
+    new_set = set(new_rels)
+    missing = []
+    for rel in prior_index:
+        if rel in new_set:
+            continue
+        if not (csaf_root / rel).is_file():
+            missing.append(rel)
+    return missing
+
+
 def _read_index_lines(csaf_root):
     index = csaf_root / 'index.txt'
     if not index.is_file():
@@ -290,6 +335,10 @@ def _drop_unindexed(csaf_root, indexed):
         if not tlp_dir.is_dir():
             continue
         for path in tlp_dir.glob('*/*.json'):
+            # name.cdx.json sits beside the CSAF document and is not in
+            # index.txt. Deleting it on --keep drops the VEX file.
+            if path.name.endswith('.cdx.json'):
+                continue
             rel = path.relative_to(csaf_root).as_posix()
             if rel in indexed:
                 continue
@@ -352,6 +401,35 @@ def main():
 
     timestamp = build_timestamp()
 
+    csaf_docs = sorted(docs_dir.glob('*.csaf.json'))
+    if not csaf_docs:
+        sys.exit(f'ERROR: no *.csaf.json in {docs_dir}')
+
+    used_names = {}
+    planned = []
+    for src in csaf_docs:
+        doc = json.loads(src.read_text())
+        rel = _planned_document(doc, args.tlp, timestamp, used_names)
+        planned.append((doc, rel))
+
+    if args.keep:
+        missing = _missing_prior_files(
+            csaf_root, prior_index, [rel for _doc, rel in planned])
+        if missing:
+            sys.exit(
+                'ERROR: --keep index lists files that are not in the tree: '
+                + ', '.join(missing)
+                + '. Nothing was written.')
+        if not args.gpg_key and not args.key_file:
+            prior_fp = _listed_fingerprint(csaf_root)
+            if prior_fp:
+                sys.exit(
+                    'ERROR: --keep without a signing key would publish '
+                    'provider-metadata.json with no key. The website copy '
+                    'is additive, so provider-metadata.json.asc would stay '
+                    f'and no longer match. The current fingerprint is {prior_fp}. '
+                    'Pass --gpg-key or --key-file. Nothing was written.')
+
     # signer(path) writes path.asc. None leaves the tree unsigned.
     signer = None
     fingerprint = None
@@ -373,28 +451,11 @@ def main():
     index_lines = []
     changes_rows = []
     publisher = None
-    used_names = {}
 
-    csaf_docs = sorted(docs_dir.glob('*.csaf.json'))
-    if not csaf_docs:
-        sys.exit(f'ERROR: no *.csaf.json in {docs_dir}')
-
-    for src in csaf_docs:
-        doc = json.loads(src.read_text())
+    for doc, rel in planned:
         publisher = publisher or doc['document']['publisher']
-        tracking_id = doc['document']['tracking']['id']
-        year = _year_of(doc, timestamp)
-        rel_dir = pathlib.Path(args.tlp) / year
-        dest_dir = csaf_root / rel_dir
-        dest_dir.mkdir(parents=True, exist_ok=True)
-
-        dest = dest_dir / canonical_filename(tracking_id)
-        if dest.name in used_names:
-            sys.exit(
-                f'ERROR: tracking ids {used_names[dest.name]!r} and '
-                f'{tracking_id!r} both canonicalize to {dest.name}')
-        used_names[dest.name] = tracking_id
-        rel = (rel_dir / dest.name).as_posix()
+        dest = csaf_root / rel
+        dest.parent.mkdir(parents=True, exist_ok=True)
         # Point the in-document `self` URL at the hosted path *before* hashing
         # and signing, so the published bytes match the canonical location.
         public_url = args.base_url.rstrip('/') + '/' + rel

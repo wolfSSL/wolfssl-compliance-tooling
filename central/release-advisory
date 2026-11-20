@@ -39,6 +39,36 @@ def _reject_other_product(product):
             'products in the provider tree.')
 
 
+def _normalize_gpg_fingerprint(gpg_key):
+    """One fingerprint for csaf-publish and csaf-verify.
+
+    csaf-publish accepts a 0x prefix and strips it. csaf-verify compares
+    the value as given, so the prefix must be removed before both commands.
+    """
+    text = gpg_key.strip().replace(' ', '')
+    if text[:2].lower() == '0x':
+        text = text[2:]
+    return text.upper()
+
+
+def _pgpy_importable():
+    try:
+        import pgpy  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _refuse_out_dir(out_dir, out_root):
+    """Refuse an output directory that is the provider root or contains it."""
+    out = pathlib.Path(out_dir).resolve()
+    root = pathlib.Path(out_root).resolve()
+    if out == root or root.is_relative_to(out):
+        sys.exit(
+            f'ERROR: --out-dir {out_dir} equals or contains --out-root '
+            f'{out_root}. Refusing to delete the provider tree.')
+
+
 def _run(argv):
     shown = ' '.join(argv)
     print(f'+ {shown}')
@@ -117,6 +147,8 @@ def completeness_argv(py, release, changelog, overlay, records_dir,
 def publish_steps(py, release, overlay, records_dir, releases_root,
                   out_dir, out_root, gpg_key, base_url, pin_records_dir):
     """Command list after the completeness gate. pin_records_dir holds this pin."""
+    if gpg_key:
+        gpg_key = _normalize_gpg_fingerprint(gpg_key)
     steps = []
     bundle = f'wolfssl-{release}'
     gen = [
@@ -169,9 +201,10 @@ def print_publish_manual(release, out_dir, out_root, gpg_key):
           'A full replacement removes the product that shipped earlier.')
     print('--keep merges this run with the index.txt already in that tree. '
           'advisories/publish is gitignored, so a fresh clone has no index. '
-          'Download the live provider directory with csaf-fetch into '
-          '--out-root before publish. Copying this index up from an empty '
-          'tree drops every advisory that was only on the website.')
+          'Download the live provider directory into --out-root before '
+          'publish: provider-metadata.json, index.txt, changes.csv, and '
+          'each document the index names. Copying this index up from an '
+          'empty tree drops every advisory that was only on the website.')
     print(f'Update the GitHub release for wolfSSL {release} '
           f'with the bundle in {out_dir}.')
     if gpg_key:
@@ -196,10 +229,15 @@ def cmd_draft(args):
 
 def cmd_publish(args):
     _reject_other_product(args.product)
+    _refuse_out_dir(args.out_dir, args.out_root)
     # advisory-completeness skips the pin check when this path is not a
     # file. Reject it here so a typo cannot publish.
     if not pathlib.Path(args.changelog).is_file():
         sys.exit(f'ERROR: changelog not found: {args.changelog}')
+    if args.gpg_key and not _pgpy_importable():
+        sys.exit(
+            'ERROR: pgpy is required to verify --gpg-key after publish. '
+            'Install pgpy first. Nothing was written.')
     ids = _pin_ids(args.releases_root, args.release)
     _run(completeness_argv(
         sys.executable, args.release, args.changelog, args.overlay,
