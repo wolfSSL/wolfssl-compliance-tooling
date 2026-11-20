@@ -160,6 +160,25 @@ class FetchTests(unittest.TestCase):
             vex_path.write_text(json.dumps({'vulnerabilities': ['CVE-2026-1']}))
             err = fetch.check_vex_file(root / rel, vex_path)
             self.assertIn('not an object', err)
+            vex_path.write_text(json.dumps({
+                'vulnerabilities': [{
+                    'id': 'CVE-2026-1',
+                    'ratings': ['CVSSv4'],
+                }],
+            }))
+            err = fetch.check_vex_file(root / rel, vex_path)
+            self.assertIn('rating is not an object', err)
+            (root / rel).write_text(json.dumps({
+                'vulnerabilities': [{'cve': ['CVE-2026-1']}],
+            }))
+            vex_path.write_text(json.dumps({
+                'vulnerabilities': [{
+                    'id': 'CVE-2026-1',
+                    'ratings': [{'method': 'CVSSv4', 'score': 1}],
+                }],
+            }))
+            err = fetch.check_vex_file(root / rel, vex_path)
+            self.assertIn('cve is not a string', err)
 
     def test_fetch_names_every_missing_vex_file(self):
         doc = json.dumps({'vulnerabilities': [{'cve': 'CVE-2026-1'}]}).encode()

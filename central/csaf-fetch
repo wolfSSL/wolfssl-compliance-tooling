@@ -92,7 +92,7 @@ def has_cvss_v4_score(ratings):
     A JSON boolean is an int in Python, so True and False are rejected.
     """
     for rating in ratings:
-        if rating.get('method') != 'CVSSv4':
+        if not isinstance(rating, dict) or rating.get('method') != 'CVSSv4':
             continue
         score = rating.get('score')
         if isinstance(score, bool) or not isinstance(score, (int, float)):
@@ -123,6 +123,10 @@ def check_vex_file(csaf_path, vex_path):
         vid = vuln.get('id')
         if not isinstance(vid, str) or not vid:
             return f'{vex_path.name}: vulnerability entry has no id'
+    for vuln in csaf_vulns:
+        cve = vuln.get('cve')
+        if cve and not isinstance(cve, str):
+            return f'{csaf_path.name}: cve is not a string'
     csaf_ids = _cve_ids(csaf, 'cve')
     vex_ids = _cve_ids(vex, 'id')
     if not csaf_ids:
@@ -132,7 +136,11 @@ def check_vex_file(csaf_path, vex_path):
     missing_score = []
     for vuln in vex_vulns:
         ratings = vuln.get('ratings') or []
-        if not isinstance(ratings, list) or not has_cvss_v4_score(ratings):
+        if not isinstance(ratings, list):
+            return f'{vex_path.name}: ratings is not a list'
+        if any(not isinstance(rating, dict) for rating in ratings):
+            return f'{vex_path.name}: rating is not an object'
+        if not has_cvss_v4_score(ratings):
             missing_score.append(vuln['id'])
     if missing_score:
         return f'{vex_path.name}: missing CVSS v4: {", ".join(missing_score)}'
