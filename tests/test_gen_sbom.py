@@ -2727,6 +2727,12 @@ class TestCopyrightStart(unittest.TestCase):
         self.assertEqual(self._docs(copyright_start=2024),
                          ('Copyright (C) 2024 wolfSSL Inc.',) * 2)
 
+    def test_start_after_build_year(self):
+        self.assertEqual(self._docs(year=1980),
+                         ('Copyright (C) 2006 wolfSSL Inc.',) * 2)
+        self.assertEqual(self._docs(copyright_start=2025, year=2024),
+                         ('Copyright (C) 2025 wolfSSL Inc.',) * 2)
+
     def test_supplier_is_the_holder(self):
         self.assertEqual(self._docs(supplier='Acme Ltd.'),
                          ('Copyright (C) 2006-2024 Acme Ltd.',) * 2)
@@ -2740,7 +2746,7 @@ class TestCopyrightStart(unittest.TestCase):
             gs.config_identity(*args),
             gs.config_identity(*args, copyright_start=2020))
 
-    def _run(self, start):
+    def _run(self, start, sde='1704067200'):
         import subprocess
         here = pathlib.Path(__file__).resolve().parent
         script = here.parent / 'share' / 'gen-sbom'
@@ -2748,25 +2754,64 @@ class TestCopyrightStart(unittest.TestCase):
             lib = os.path.join(d, 'libx.a')
             with open(lib, 'wb') as f:
                 f.write(b'lib')
-            env = dict(os.environ, SOURCE_DATE_EPOCH='1704067200')
-            return subprocess.run(
+            env = dict(os.environ, SOURCE_DATE_EPOCH=sde)
+            opt = [] if start is None else ['--copyright-start', start]
+            result = subprocess.run(
                 ['python3', str(script), '--name', 'wolfssl',
                  '--version', '0.0.0-test', '--license-file', '/dev/null',
-                 '--options-h', '/dev/null', '--lib', lib,
-                 '--copyright-start', start,
+                 '--options-h', '/dev/null', '--lib', lib, *opt,
                  '--cdx-out', os.path.join(d, 'o.cdx.json'),
                  '--spdx-out', os.path.join(d, 'o.spdx.json')],
                 capture_output=True, text=True, env=env)
+            result.copyright = None
+            if result.returncode == 0:
+                with open(os.path.join(d, 'o.cdx.json')) as f:
+                    cdx = json.load(f)
+                with open(os.path.join(d, 'o.spdx.json')) as f:
+                    spdx = json.load(f)
+                result.copyright = (
+                    cdx['metadata']['component']['copyright'],
+                    spdx['packages'][0]['copyrightText'])
+            return result
 
     def test_cli_accepts_build_year(self):
         result = self._run('2024')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_cli_start_after_build_year(self):
+        for start, line in ((None, '2006'), ('2006', '2006'),
+                            ('2025', '2025')):
+            result = self._run(start, sde='315532800')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.copyright,
+                             (f'Copyright (C) {line} wolfSSL Inc.',) * 2)
+
     def test_cli_rejects_invalid_year(self):
-        for start in ('0', '999', '2025', 'twenty'):
+        for start in ('0', '999', '9999', 'twenty'):
             result = self._run(start)
             self.assertNotEqual(result.returncode, 0, start)
             self.assertIn('--copyright-start', result.stderr)
+
+    def test_cli_bound_is_current_year(self):
+        now = datetime.now(timezone.utc).year
+        accepted = self._run(str(now), sde='315532800')
+        rejected = self._run(str(now + 1), sde='315532800')
+        if datetime.now(timezone.utc).year != now:
+            self.skipTest('UTC year changed during the test')
+        self.assertEqual(accepted.returncode, 0, accepted.stderr)
+        self.assertNotEqual(rejected.returncode, 0)
+        self.assertIn('--copyright-start', rejected.stderr)
+
+    def test_cli_bound_is_build_year(self):
+        future = datetime.now(timezone.utc).year + 2
+        sde = str(int(datetime(future, 6, 1, tzinfo=timezone.utc).timestamp()))
+        result = self._run(str(future), sde=sde)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.copyright,
+                         (f'Copyright (C) {future} wolfSSL Inc.',) * 2)
+        result = self._run(str(future + 1), sde=sde)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('--copyright-start', result.stderr)
 
 
 # ---------------------------------------------------------------------------

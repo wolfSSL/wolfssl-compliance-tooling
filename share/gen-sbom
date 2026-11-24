@@ -364,8 +364,9 @@ def config_identity(lib_hash, license_id, build_props, enabled_deps,
 
 
 def copyright_text(start, year, supplier):
-    """Copyright line for the main component, one year when start == year."""
-    years = str(year) if start == year else f'{start}-{year}'
+    """Copyright line for the main component, the start year alone when
+    the build year is not later."""
+    years = str(start) if start >= year else f'{start}-{year}'
     return f'Copyright (C) {years} {supplier}'
 
 
@@ -1716,7 +1717,10 @@ def main():
     parser.add_argument('--copyright-start', type=int,
                         default=DEFAULT_COPYRIGHT_START, metavar='YEAR',
                         help='First year of the copyright line, written as '
-                             '"Copyright (C) YEAR-<build year> <supplier>" '
+                             '"Copyright (C) YEAR-<build year> <supplier>", '
+                             'or YEAR alone when the build year is not later. '
+                             'YEAR may not be later than the build year or '
+                             'the current year, whichever is later '
                              '(default: %(default)s)')
     parser.add_argument('--license-file', required=True,
                         help='Path to LICENSING file for SPDX ID detection')
@@ -1902,9 +1906,11 @@ def main():
 
     dt, timestamp = build_timestamp()
     year = dt.year
-    if not 1000 <= args.copyright_start <= year:
+    latest = max(year, datetime.now(timezone.utc).year,
+                 DEFAULT_COPYRIGHT_START)
+    if not 1000 <= args.copyright_start <= latest:
         sys.exit(f"ERROR: --copyright-start {args.copyright_start} must be a "
-                 f"four-digit year no later than the build year {year}.")
+                 f"four-digit year no later than {latest}.")
 
     enabled_deps = _enabled_deps([
         ('wolfssl',   '--dep-wolfssl',   args.dep_wolfssl),
