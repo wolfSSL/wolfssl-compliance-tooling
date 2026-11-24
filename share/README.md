@@ -68,9 +68,12 @@ still reads the full capture.
 Dependency (for linkers and bindings): `--dep-wolfssl`, `--dep-openssl`, and
 `--dep-version` are passed through only when the generator supports them.
 
-Copyright: the line reads `Copyright (C) <start>-<build year> <supplier>`.
-`--copyright-start` (Make, autotools: `SBOM_COPYRIGHT_START`; CMake:
-`COPYRIGHT_START`) sets the first year, which defaults to 2006.
+Copyright: the line reads `Copyright (C) <start>-<build year> <supplier>`, or
+the start year alone when the build year is not later, as with an old
+`SOURCE_DATE_EPOCH`. `--copyright-start` (Make, autotools:
+`SBOM_COPYRIGHT_START`; CMake: `COPYRIGHT_START`) sets the first year, which
+defaults to 2006 and may not be later than the build year or the current year,
+whichever is later.
 
 Timestamp: `SOURCE_DATE_EPOCH` sets the creation time and the build year. When
 it is not set and `--root` is passed, the driver uses the last commit time of
