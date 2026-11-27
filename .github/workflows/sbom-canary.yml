@@ -141,9 +141,10 @@ jobs:
           make install
 
       - name: Install pyspdxtools
-        if: matrix.product == 'wolftpm'
+        if: matrix.product == 'wolftpm' || matrix.product == 'wolfmqtt'
         run: |
           # configure records PYSPDXTOOLS. Install the tool before configure.
+          # wolfTPM and wolfMQTT abort make sbom when the program is missing.
           python3 -m pip install --user 'spdx-tools==0.8.*'
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
