@@ -137,6 +137,12 @@ class TestForwarding(CompdbCase):
             self.assertIn(pair, pairs)
         self.assertIn("--cflags=-DFOO=1", argv)
 
+    def test_no_defines_passes_empty_cflags(self):
+        self.write_db([("a.c", [])])
+        r = self.run_compdb()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("--cflags=", self.driver_argv())
+
     def test_options_h_replaces_cflags(self):
         self.write_db([("a.c", ["-DFOO=1"])])
         opts = os.path.join(self.d, "options.h")

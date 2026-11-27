@@ -20,10 +20,11 @@ The driver covers every product tier:
 
 Config (choose one):
   --cflags "..."     Raw CFLAGS. -D tokens are expanded through the host
-                     compiler and scrubbed of absolute paths. Pair with
+                     compiler and scrubbed of absolute paths. An empty value
+                     is a configuration with no -D tokens. Pair with
                      --settings-h so the capture also sees the header those
-                     -D tokens are interpreted by; without it the dump is the
-                     -D list alone and every derived macro is missing.
+                     tokens are interpreted by. Omit --cflags to choose
+                     another config mode.
   --options-h PATH   A pre-expanded flat #define header, used verbatim (scrubbed).
   --user-settings P  Path to wolfssl/wolfcrypt/settings.h. Also pass
                      --user-settings-include and
@@ -309,8 +310,11 @@ def main():
 
     # Config (choose one).
     grp = ap.add_mutually_exclusive_group()
-    grp.add_argument("--cflags", default="",
-                     help="Build CFLAGS; -D tokens expanded through the host cc.")
+    grp.add_argument("--cflags", default=None,
+                     help="Build CFLAGS; -D tokens expanded through the host "
+                          "cc. An empty value is a configuration with no -D "
+                          "tokens. Omit this flag to choose another config "
+                          "mode.")
     ap.add_argument("--settings-h", default="",
                     help="Settings header -include'd during the --cflags "
                          "capture, so macros the header derives from the -D "
@@ -455,10 +459,11 @@ def main():
                 cmd += ["--lib", args.lib]
 
         # Config.
-        if args.settings_h and not args.cflags:
+        if args.settings_h and args.cflags is None:
             # --settings-h only feeds the --cflags capture. Ignoring it in
             # silence is how a product ends up believing it recorded a
-            # configuration it never captured.
+            # configuration it never captured. An empty --cflags= is a real
+            # configuration, so it still reaches the capture below.
             print("WARNING: --settings-h is only used with --cflags; "
                   "ignoring it here.", file=sys.stderr)
         if args.user_settings:
@@ -475,7 +480,7 @@ def main():
                     sys.exit(f"ERROR: --options-h '{args.options_h}' does not exist.")
                 with open(args.options_h, encoding="utf-8", errors="replace") as f:
                     defines_text = f.read()
-            elif args.cflags:
+            elif args.cflags is not None:
                 # A relative path is left to the compiler's -include search.
                 if (os.path.isabs(args.settings_h)
                         and not os.path.isfile(args.settings_h)):
