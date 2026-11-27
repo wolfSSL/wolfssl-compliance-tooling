@@ -144,6 +144,69 @@ def unit_tests():
     check(drv.is_absolute_path_token(r'C:\Users\ci\sdk'),
           "a preserved Windows path is still recognised by the scrub")
 
+    # --cflags defaults to None so an explicit empty value is distinct from
+    # an omitted flag. A compilation database with no -D flags passes
+    # --cflags= and must still generate, including a --settings-h capture.
+    print("[unit] empty --cflags")
+    with tempfile.TemporaryDirectory() as d:
+        stub = os.path.join(d, "stub-gen-sbom.py")
+        captured = os.path.join(d, "captured.txt")
+        with open(stub, "w", encoding="utf-8") as f:
+            f.write(
+                "import os, sys\n"
+                "argv = sys.argv[1:]\n"
+                "text = ''\n"
+                "if '--options-h' in argv:\n"
+                "    p = argv[argv.index('--options-h') + 1]\n"
+                "    with open(p, encoding='utf-8') as src:\n"
+                "        text = src.read()\n"
+                "with open(os.environ['CAPTURE'], 'w', encoding='utf-8') as out:\n"
+                "    out.write(text)\n"
+                "sys.exit(0)\n")
+        settings = os.path.join(d, "settings.h")
+        with open(settings, "w", encoding="utf-8") as f:
+            f.write("#define FROM_HEADER 1\n")
+        lic = os.path.join(d, "LICENSE")
+        with open(lic, "w", encoding="utf-8") as f:
+            f.write("MIT\n")
+        env = dict(os.environ, CAPTURE=captured)
+        base = [sys.executable, os.path.join(SHARE, "sbom-driver.py"),
+                "--name", "selftest",
+                "--version", "1.0.0", "--license-file", lic,
+                "--gen-sbom", stub, "--root", d, "--no-artifact-hash",
+                "--cdx-out", "e.cdx.json", "--spdx-out", "e.spdx.json"]
+        r = subprocess.run(base, cwd=d, capture_output=True, text=True, env=env)
+        check(r.returncode != 0 and "pass one of --cflags" in r.stderr,
+              "an omitted config mode still fails")
+        r = subprocess.run(base + ["--settings-h", settings],
+                           cwd=d, capture_output=True, text=True, env=env)
+        check(r.returncode != 0 and "pass one of --cflags" in r.stderr,
+              "--settings-h without --cflags still fails")
+        check("only used with --cflags" in r.stderr,
+              "--settings-h without --cflags warns")
+        if os.path.isfile(captured):
+            os.remove(captured)
+        r = subprocess.run(base + ["--cflags="],
+                           cwd=d, capture_output=True, text=True, env=env)
+        check(r.returncode == 0,
+              "empty --cflags= generates\n" + r.stderr)
+        check("no -D flags" in r.stderr,
+              "empty --cflags= without --settings-h warns")
+        if os.path.isfile(captured):
+            os.remove(captured)
+        r = subprocess.run(base + ["--cflags=", "--settings-h", settings],
+                           cwd=d, capture_output=True, text=True, env=env)
+        text = ""
+        if os.path.isfile(captured):
+            with open(captured, encoding="utf-8") as f:
+                text = f.read()
+        check(r.returncode == 0 and "#define FROM_HEADER 1" in text,
+              "empty --cflags= still captures --settings-h\n" + r.stderr)
+        check("only used with --cflags" not in r.stderr,
+              "empty --cflags= keeps --settings-h")
+        check("no -D flags" not in r.stderr,
+              "empty --cflags= with --settings-h does not warn")
+
     # Validator: a good CycloneDX passes with the right prefix; a wrong prefix
     # fails.
     with tempfile.TemporaryDirectory() as d:

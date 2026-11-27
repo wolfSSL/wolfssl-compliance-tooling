@@ -16,7 +16,10 @@
 # Config - set one:
 #   SBOM_CFLAGS      Build CFLAGS whose -D tokens describe the config.
 #                    The driver keeps the -D tokens and forwards -I/-isystem;
-#                    all other flags are dropped.
+#                    all other flags are dropped. An empty value still
+#                    forwards --cflags= unless another config mode is set.
+#                    The driver warns when that value is empty and
+#                    SBOM_SETTINGS_H is unset.
 #   SBOM_OPTIONS_H   A pre-expanded flat #define header (verbatim, scrubbed).
 #   SBOM_USER_SETTINGS  Path to wolfssl/wolfcrypt/settings.h. Also set
 #                       SBOM_USER_SETTINGS_INCLUDES and
@@ -205,7 +208,7 @@ $(SBOM_TAB)@set -e; \
         $(if $(filter 1,$($(2)NO_ARTIFACT_HASH)),, \
             $(if $($(2)LIB),--lib "$($(2)LIB)")) \
         $(if $(filter 1,$($(2)SOURCE_ONLY)),--source-only) \
-        $(if $($(2)CFLAGS),--cflags="$$($(2)CFLAGS)") \
+        $(if $($(2)CFLAGS),--cflags="$$($(2)CFLAGS)",$(if $(or $($(2)OPTIONS_H),$($(2)USER_SETTINGS),$(filter 1,$($(2)SOURCE_ONLY))),,--cflags=)) \
         $(if $($(2)SETTINGS_H),--settings-h "$($(2)SETTINGS_H)") \
         $(foreach d,$($(2)INCLUDE_DIRS),--include-dir "$(d)") \
         $(if $($(2)OPTIONS_H),--options-h "$($(2)OPTIONS_H)") \
