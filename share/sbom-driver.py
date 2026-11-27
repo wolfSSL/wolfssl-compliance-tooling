@@ -21,10 +21,11 @@ The driver covers every product tier:
 Config (choose one):
   --cflags "..."     Raw CFLAGS. -D tokens are expanded through the host
                      compiler and scrubbed of absolute paths. An empty value
-                     is a configuration with no -D tokens. Pair with
+                     is a configuration with no -D tokens. Pair it with
                      --settings-h so the capture also sees the header those
-                     tokens are interpreted by. Omit --cflags to choose
-                     another config mode.
+                     tokens are interpreted by. An empty value with no
+                     --settings-h warns on stderr and still generates.
+                     Omit --cflags to choose another config mode.
   --options-h PATH   A pre-expanded flat #define header, used verbatim (scrubbed).
   --user-settings P  Path to wolfssl/wolfcrypt/settings.h. Also pass
                      --user-settings-include and
@@ -313,8 +314,8 @@ def main():
     grp.add_argument("--cflags", default=None,
                      help="Build CFLAGS; -D tokens expanded through the host "
                           "cc. An empty value is a configuration with no -D "
-                          "tokens. Omit this flag to choose another config "
-                          "mode.")
+                          "tokens. An empty value with no --settings-h warns. "
+                          "Omit this flag to choose another config mode.")
     ap.add_argument("--settings-h", default="",
                     help="Settings header -include'd during the --cflags "
                          "capture, so macros the header derives from the -D "
@@ -481,6 +482,14 @@ def main():
                 with open(args.options_h, encoding="utf-8", errors="replace") as f:
                     defines_text = f.read()
             elif args.cflags is not None:
+                # CMake always passes --cflags=, including when DEFS is empty.
+                # That is a real configuration when --settings-h is set. With
+                # neither -D flags nor a settings header, warn instead of
+                # recording a silent empty configuration.
+                if not args.cflags.strip() and not args.settings_h:
+                    print("WARNING: --cflags is empty and --settings-h is "
+                          "unset; the capture has no -D flags.",
+                          file=sys.stderr)
                 # A relative path is left to the compiler's -include search.
                 if (os.path.isabs(args.settings_h)
                         and not os.path.isfile(args.settings_h)):

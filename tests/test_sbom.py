@@ -158,8 +158,10 @@ def unit_tests():
                 "text = ''\n"
                 "if '--options-h' in argv:\n"
                 "    p = argv[argv.index('--options-h') + 1]\n"
-                "    text = open(p, encoding='utf-8').read()\n"
-                "open(os.environ['CAPTURE'], 'w', encoding='utf-8').write(text)\n"
+                "    with open(p, encoding='utf-8') as src:\n"
+                "        text = src.read()\n"
+                "with open(os.environ['CAPTURE'], 'w', encoding='utf-8') as out:\n"
+                "    out.write(text)\n"
                 "sys.exit(0)\n")
         settings = os.path.join(d, "settings.h")
         with open(settings, "w", encoding="utf-8") as f:
@@ -178,20 +180,32 @@ def unit_tests():
               "an omitted config mode still fails")
         r = subprocess.run(base + ["--settings-h", settings],
                            cwd=d, capture_output=True, text=True, env=env)
-        check(r.returncode != 0 and "only used with --cflags" in r.stderr,
-              "--settings-h without --cflags is still rejected")
+        check(r.returncode != 0 and "pass one of --cflags" in r.stderr,
+              "--settings-h without --cflags still fails")
+        check("only used with --cflags" in r.stderr,
+              "--settings-h without --cflags warns")
+        if os.path.isfile(captured):
+            os.remove(captured)
         r = subprocess.run(base + ["--cflags="],
                            cwd=d, capture_output=True, text=True, env=env)
         check(r.returncode == 0,
               "empty --cflags= generates\n" + r.stderr)
+        check("no -D flags" in r.stderr,
+              "empty --cflags= without --settings-h warns")
+        if os.path.isfile(captured):
+            os.remove(captured)
         r = subprocess.run(base + ["--cflags=", "--settings-h", settings],
                            cwd=d, capture_output=True, text=True, env=env)
-        text = open(captured, encoding="utf-8").read() \
-            if os.path.isfile(captured) else ""
+        text = ""
+        if os.path.isfile(captured):
+            with open(captured, encoding="utf-8") as f:
+                text = f.read()
         check(r.returncode == 0 and "#define FROM_HEADER 1" in text,
               "empty --cflags= still captures --settings-h\n" + r.stderr)
         check("only used with --cflags" not in r.stderr,
               "empty --cflags= keeps --settings-h")
+        check("no -D flags" not in r.stderr,
+              "empty --cflags= with --settings-h does not warn")
 
     # Validator: a good CycloneDX passes with the right prefix; a wrong prefix
     # fails.

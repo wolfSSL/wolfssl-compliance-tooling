@@ -129,6 +129,24 @@ class RecipeTests(unittest.TestCase):
         self.assertNotIn("--lib", args)
         self.assertNotIn("--srcs-file", args)
 
+    def test_empty_cflags_forwarded_with_settings_header(self):
+        result = self._make(
+            "SBOM_NAME := demo\nSBOM_LIB := libdemo.a\n"
+            "SBOM_SETTINGS_H := cfg.h\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self._args()
+        self.assertIn("--cflags=", args)
+        self.assertEqual(args[args.index("--settings-h") + 1], "cfg.h")
+
+    def test_options_header_does_not_add_empty_cflags(self):
+        result = self._make(
+            "SBOM_NAME := demo\nSBOM_LIB := libdemo.a\n"
+            "SBOM_OPTIONS_H := opt.h\n")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self._args()
+        self.assertFalse(any(a.startswith("--cflags") for a in args))
+        self.assertEqual(args[args.index("--options-h") + 1], "opt.h")
+
 
 if __name__ == "__main__":
     unittest.main()
